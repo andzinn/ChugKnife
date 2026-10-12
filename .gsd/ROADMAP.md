@@ -11,7 +11,7 @@
 - [x] Gate does not chatter on low notes (7/8-string range) and still closes tight
 - [x] TS808: Drive 0 + Level max is a boost (bounded output, no extra makeup gain); Level is an attenuator like the pedal
 - [x] TS808 tone stage simulated from the real RC network (R7/C5/RV/R8/C6/R9), not a generic shelf
-- [ ] Chugger: transparent at 0; tightens low end only when lows dominate (palm mutes); boosts pick attack only on transients
+- [x] Chugger: transparent at 0; tightens low end only when lows dominate (palm mutes); boosts pick attack only on transients
 - [ ] Automated DSP test executable with numeric pass/fail checks for all of the above
 
 ## Phases
@@ -27,7 +27,7 @@ ripple-induced chatter on low notes, compensate pitch-shifter delay in the gate 
 nodal tone-stage simulation and Level as an audio-taper attenuator.
 
 ### Phase 3: Chugger v3 — Palm-Mute-Aware Tightener
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 **Objective**: Phase-coherent 3-band split; level-independent low-dominance compressor + transient
 attack shaper. No dry/wet blending.
 
