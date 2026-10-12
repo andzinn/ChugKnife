@@ -195,6 +195,9 @@ void ChugKnifeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     // 4. Stage 3: Noise Gate (The Internal 4CM Heart)
     // Detector listens to the clean DI from Input (cleanDiBuffer).
+    // Compensate pitch-shifter latency in the gate hold timer.
+    const int shifterDelaySamples = static_cast<int> (pitchShifter.getCurrentDelaySamples());
+    noiseGate.setExtraHoldSamples (shifterDelaySamples);
     // Attenuation is applied to the post-distortion audio buffer.
     noiseGate.process (buffer, &cleanDiBuffer);
 

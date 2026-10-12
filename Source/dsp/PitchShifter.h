@@ -34,6 +34,14 @@ public:
     /** Enables or bypasses pitch shifting. */
     void setBypassed (bool bypassed) { isBypassed = bypassed; }
 
+    /** Returns the current delay of the read tap in samples (0 if bypassed or no shift). */
+    float getCurrentDelaySamples() const
+    {
+        if (isBypassed || currentSemitones == 0)
+            return 0.0f;
+        return static_cast<float> (std::max (0.0, static_cast<double> (writePos) - tapA));
+    }
+
     void process (juce::AudioBuffer<float>& buffer);
 
 private:
