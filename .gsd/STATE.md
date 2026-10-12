@@ -2,18 +2,17 @@
 
 ## Current Position
 - **Milestone**: v1.1 — "Fix the Core"
-- **Current Phase**: Phase 1 - Routing 2-in/2-out + Internal 4CM + Gate Detector Fix
-- **Status**: Plan 1.1 ready for execution (Inline mode)
+- **Current Phase**: Phase 2: TS808 Gain Staging and Circuit Model Rewrite
+- **Status**: Phase 1 verified and complete; ready for Phase 2
 
-## Executing Plan
-- Plan: `1-PLAN.md`
-- Tasks:
-  1. Simplify bus routing to 2-In/2-Out and implement internal 4CM pipeline
-  2. Rewrite NoiseGate detector with 23 ms sliding-window maximum and atomic reduction
-  3. Expose PitchShifter latency and wire delay compensation to NoiseGate
+## Phase 1 Summary (Completed)
+- Standard 2-in/2-out (stereo/mono matching) bus architecture restored.
+- Internal 4CM pipeline: pristine DI copied at block start keys the gate detector; audio is processed through Pitch -> Screamer -> Chugger; gate attenuates at block end.
+- Gate detector upgraded with 24 ms sliding-window maximum (1 ms cells) eliminating intra-cycle ripple/decay on notes down to 41.6 Hz.
+- Thread-safe atomic reduction meter for UI.
+- Pitch shifter latency dynamically compensated in the gate hold timer.
+- Builds verified: VST3 and Standalone binaries generated with code 0.
 
 ## Next Steps
-1. Execute Plan 1.1 Task 1
-2. Execute Plan 1.1 Task 2
-3. Execute Plan 1.1 Task 3
-4. Compile and verify VST3 and Standalone
+1. /plan 2 — Plan Phase 2 (TS808 Gain Staging and Circuit Model Rewrite)
+2. /execute 2 — Implement Phase 2
