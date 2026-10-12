@@ -14,6 +14,7 @@ inline float calculateOnePoleCoeff (float timeMs, double sr)
 NoiseGate::NoiseGate()
 {
     updateTimingCoefficients();
+    reset();
 }
 
 void NoiseGate::DetectorFilter::updateCoeffs (double sr)
@@ -60,9 +61,14 @@ void NoiseGate::reset()
     for (auto& f : detectorFilters)
         f.reset();
 
-    envelope = 0.0f;
+    cellMaxValues.fill (0.0f);
+    currentCellIndex = 0;
+    sampleInCellCounter = 0;
+    ongoingCellMax = 0.0f;
+    cachedWindowMax = 0.0f;
+
     currentGain = 1.0f;
-    currentGainDb = 0.0f;
+    currentGainDb.store (0.0f, std::memory_order_relaxed);
     holdSamplesRemaining = 0;
     gateIsOpen = false;
 }
@@ -72,11 +78,25 @@ void NoiseGate::setThreshold (float newThresholdDb)
     thresholdDb = juce::jlimit (-80.0f, 0.0f, newThresholdDb);
 }
 
+void NoiseGate::setExtraHoldSamples (int extraSamples)
+{
+    extraHoldSamples = std::max (0, extraSamples);
+}
+
 void NoiseGate::updateTimingCoefficients()
 {
     attackCoeff  = calculateOnePoleCoeff (kAttackMs, sampleRate);
     releaseCoeff = calculateOnePoleCoeff (kReleaseMs, sampleRate);
-    holdSamplesTotal = static_cast<int> (kHoldMs * 0.001f * static_cast<float> (sampleRate));
+    baseHoldSamplesTotal = static_cast<int> (kBaseHoldMs * 0.001f * static_cast<float> (sampleRate));
+    samplesPerCell = std::max (1, static_cast<int> (0.001 * sampleRate)); // 1 ms per cell
+}
+
+void NoiseGate::updateWindowMax()
+{
+    float m = 0.0f;
+    for (float val : cellMaxValues)
+        m = std::max (m, val);
+    cachedWindowMax = m;
 }
 
 void NoiseGate::process (juce::AudioBuffer<float>& mainBuffer,
@@ -85,22 +105,20 @@ void NoiseGate::process (juce::AudioBuffer<float>& mainBuffer,
     if (isBypassed)
     {
         currentGain = 1.0f;
-        currentGainDb = 0.0f;
+        currentGainDb.store (0.0f, std::memory_order_relaxed);
         return;
     }
 
     const int numSamples = mainBuffer.getNumSamples();
     const int mainChannels = std::min (static_cast<int> (mainBuffer.getNumChannels()), kMaxChannels);
 
-    // Determine detector source buffer:
-    // If sidechain is provided and has channels, use sidechain (4CM external mode).
-    // Otherwise, detect from mainBuffer (internal 4CM mode).
     const bool useSidechain = (sidechainBuffer != nullptr && sidechainBuffer->getNumChannels() > 0);
     const int scChannels = useSidechain ? std::min (static_cast<int> (sidechainBuffer->getNumChannels()), kMaxChannels) : mainChannels;
 
     const float openThreshLin  = juce::Decibels::decibelsToGain (thresholdDb);
     const float closeThreshLin = juce::Decibels::decibelsToGain (thresholdDb - kHysteresisDb);
     const float floorGainLin   = juce::Decibels::decibelsToGain (-kMaxRangeDb);
+    const int totalHoldSamples = baseHoldSamplesTotal + extraHoldSamples;
 
     for (int i = 0; i < numSamples; ++i)
     {
@@ -114,19 +132,29 @@ void NoiseGate::process (juce::AudioBuffer<float>& mainBuffer,
             maxDetectorAbs = std::max (maxDetectorAbs, std::abs (filtered));
         }
 
-        // 2. Fast Envelope Follower
-        if (maxDetectorAbs > envelope)
-            envelope = attackCoeff * envelope + (1.0f - attackCoeff) * maxDetectorAbs;
-        else
-            envelope = releaseCoeff * envelope + (1.0f - releaseCoeff) * maxDetectorAbs;
+        // 2. Advance 24 ms sliding-window peak tracker (1 ms cells)
+        if (maxDetectorAbs > ongoingCellMax)
+            ongoingCellMax = maxDetectorAbs;
+
+        ++sampleInCellCounter;
+        if (sampleInCellCounter >= samplesPerCell)
+        {
+            cellMaxValues[static_cast<size_t> (currentCellIndex)] = ongoingCellMax;
+            currentCellIndex = (currentCellIndex + 1) % kNumWindowCells;
+            sampleInCellCounter = 0;
+            ongoingCellMax = 0.0f;
+            updateWindowMax();
+        }
+
+        const float detectedPeak = std::max (cachedWindowMax, ongoingCellMax);
 
         // 3. State Machine: Hysteresis + Hold
-        if (envelope >= openThreshLin)
+        if (detectedPeak >= openThreshLin)
         {
             gateIsOpen = true;
-            holdSamplesRemaining = holdSamplesTotal;
+            holdSamplesRemaining = totalHoldSamples;
         }
-        else if (envelope < closeThreshLin)
+        else if (detectedPeak < closeThreshLin)
         {
             if (holdSamplesRemaining > 0)
                 --holdSamplesRemaining;
@@ -140,10 +168,10 @@ void NoiseGate::process (juce::AudioBuffer<float>& mainBuffer,
         {
             targetGain = 1.0f;
         }
-        else if (envelope > floorGainLin && openThreshLin > floorGainLin)
+        else if (detectedPeak > floorGainLin && openThreshLin > floorGainLin)
         {
-            // Soft knee 4:1 downward expansion down to floor
-            const float envDb = juce::Decibels::gainToDecibels (envelope, -100.0f);
+            // Soft knee 4:1 downward expansion down to noise floor (-90 dB)
+            const float envDb = juce::Decibels::gainToDecibels (detectedPeak, -100.0f);
             const float diff = envDb - thresholdDb; // negative
             const float expandGainDb = std::max (-kMaxRangeDb, diff * 3.0f);
             targetGain = juce::Decibels::decibelsToGain (expandGainDb);
@@ -157,10 +185,8 @@ void NoiseGate::process (juce::AudioBuffer<float>& mainBuffer,
 
         // Apply gain to all main channels
         for (int ch = 0; ch < mainChannels; ++ch)
-        {
             mainBuffer.getWritePointer (ch)[i] *= currentGain;
-        }
     }
 
-    currentGainDb = juce::Decibels::gainToDecibels (currentGain, -kMaxRangeDb);
+    currentGainDb.store (juce::Decibels::gainToDecibels (currentGain, -kMaxRangeDb), std::memory_order_relaxed);
 }
