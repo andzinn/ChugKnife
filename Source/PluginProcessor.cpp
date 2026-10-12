@@ -3,9 +3,10 @@
 
 ChugKnifeAudioProcessor::ChugKnifeAudioProcessor()
     : AudioProcessor (BusesProperties()
-          .withInput  ("Input",     juce::AudioChannelSet::stereo(), true)
-          .withOutput ("Output",    juce::AudioChannelSet::stereo(), true)
-          .withInput  ("Sidechain", juce::AudioChannelSet::stereo(), false)),
+          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)   // Bus 0 In:  Main In (Guitar DI)
+          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)   // Bus 0 Out: Main Out (Post-Gate)
+          .withInput  ("Return", juce::AudioChannelSet::stereo(), true)   // Bus 1 In:  Return (From Amp)
+          .withOutput ("Send",   juce::AudioChannelSet::stereo(), true)), // Bus 1 Out: Send (To Amp)
       apvts (*this, nullptr, "Parameters", createParameterLayout())
 {
 }
@@ -42,7 +43,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChugKnifeAudioProcessor::cre
         "Transpose Bypass",
         false));
 
-    // 3. Tube Screamer Parameters
+    // 3. Tube Screamer Parameters (Virtual Analog TS808)
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "ts_drive", 1 },
         "Screamer Drive",
@@ -75,10 +76,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChugKnifeAudioProcessor::cre
         "Screamer Bypass",
         false));
 
-    // 4. "O Chugger" Monster Knob Parameters
+    // 4. "O Chugger" Tightness & Attack Parameters
     params.push_back (std::make_unique<juce::AudioParameterFloat> (
         juce::ParameterID { "chug", 1 },
-        "Chug",
+        "Chug (Tightness & Attack)",
         juce::NormalisableRange<float> (0.0f, 1.0f, 0.01f),
         0.50f,
         juce::String(),
@@ -114,13 +115,24 @@ bool ChugKnifeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts
     if (mainIn != juce::AudioChannelSet::mono() && mainIn != juce::AudioChannelSet::stereo())
         return false;
 
-    // Sidechain (bus index 1 on input side) can be disabled, mono, or stereo
-    const auto& sidechain = layouts.getChannelSet (true, 1);
-    if (! sidechain.isDisabled() &&
-        sidechain != juce::AudioChannelSet::mono() &&
-        sidechain != juce::AudioChannelSet::stereo())
+    // Return (Bus 1 In) can be disabled, mono, or stereo
+    if (layouts.inputBuses.size() > 1)
     {
-        return false;
+        const auto& returnIn = layouts.getChannelSet (true, 1);
+        if (! returnIn.isDisabled() &&
+            returnIn != juce::AudioChannelSet::mono() &&
+            returnIn != juce::AudioChannelSet::stereo())
+            return false;
+    }
+
+    // Send (Bus 1 Out) can be disabled, mono, or stereo
+    if (layouts.outputBuses.size() > 1)
+    {
+        const auto& sendOut = layouts.getChannelSet (false, 1);
+        if (! sendOut.isDisabled() &&
+            sendOut != juce::AudioChannelSet::mono() &&
+            sendOut != juce::AudioChannelSet::stereo())
+            return false;
     }
 
     return true;
@@ -141,6 +153,12 @@ void ChugKnifeAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     cleanDiBuffer.setSize (2, samplesPerBlock);
     cleanDiBuffer.clear();
 
+    preAmpBuffer.setSize (2, samplesPerBlock);
+    preAmpBuffer.clear();
+
+    postAmpBuffer.setSize (2, samplesPerBlock);
+    postAmpBuffer.clear();
+
     masterGain.reset (sampleRate, 0.02);
 }
 
@@ -150,52 +168,47 @@ void ChugKnifeAudioProcessor::releaseResources()
     pitchShifter.reset();
     tubeScreamer.reset();
     chugger.reset();
+
     cleanDiBuffer.setSize (0, 0);
+    preAmpBuffer.setSize (0, 0);
+    postAmpBuffer.setSize (0, 0);
 }
 
 void ChugKnifeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& /*midiMessages*/)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const int totalNumInputChannels  = getTotalNumInputChannels();
-    const int totalNumOutputChannels = getTotalNumOutputChannels();
     const int numSamples = buffer.getNumSamples();
 
-    // Clear unused output channels
-    for (int i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
-        buffer.clear (i, 0, numSamples);
+    // 1. Access the 4 distinct 4CM buses:
+    // Input  (Main In, bus 0) - Guitar DI
+    auto inputBus  = getBusBuffer (buffer, true, 0);
 
-    // Get Main Input/Output buffer
-    auto mainBusBuffer = getBusBuffer (buffer, true, 0);
+    // Return (Aux In, bus 1) - Coming back from Amp
+    const bool hasReturnBus = (getBusCount (true) > 1);
+    auto returnBus = hasReturnBus ? getBusBuffer (buffer, true, 1) : juce::AudioBuffer<float>();
 
-    // Check Sidechain Bus (Input bus index 1)
-    const bool hasSidechainBus = (getBusCount (true) > 1);
-    juce::AudioBuffer<float> sidechainBusBuffer;
-    sidechainConnected = false;
+    // Output (Main Out, bus 0) - Out to monitors post-gate
+    auto outputBus = getBusBuffer (buffer, false, 0);
 
-    if (hasSidechainBus)
-    {
-        sidechainBusBuffer = getBusBuffer (buffer, true, 1);
-        if (sidechainBusBuffer.getNumChannels() > 0)
-        {
-            // Verify if sidechain buffer is receiving active audio
-            const float scMagnitude = sidechainBusBuffer.getMagnitude (0, numSamples);
-            if (scMagnitude > 1e-6f)
-                sidechainConnected = true;
-        }
-    }
+    // Send   (Aux Out, bus 1) - Sending pre-amp signal to Amp
+    const bool hasSendBus = (getBusCount (false) > 1);
+    auto sendBus   = hasSendBus ? getBusBuffer (buffer, false, 1) : juce::AudioBuffer<float>();
 
-    // Capture clean DI input for internal 4CM mode if external sidechain is not active
-    if (! sidechainConnected)
-    {
-        cleanDiBuffer.setSize (mainBusBuffer.getNumChannels(), numSamples, false, false, true);
-        for (int ch = 0; ch < mainBusBuffer.getNumChannels(); ++ch)
-        {
-            cleanDiBuffer.copyFrom (ch, 0, mainBusBuffer.getReadPointer (ch), numSamples);
-        }
-    }
+    const int inChannels  = inputBus.getNumChannels();
+    const int outChannels = outputBus.getNumChannels();
 
-    // 1. UPDATE PARAMETERS FROM APVTS
+    // 2. Stage 1: Capture clean DI from Input (Guiding the Noise Gate detector)
+    cleanDiBuffer.setSize (inChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < inChannels; ++ch)
+        cleanDiBuffer.copyFrom (ch, 0, inputBus.getReadPointer (ch), numSamples);
+
+    // 3. Stage 2: Front-End / Pre-Amp Chain (Pitch Shifter -> Screamer -> Chugger)
+    preAmpBuffer.setSize (inChannels, numSamples, false, false, true);
+    for (int ch = 0; ch < inChannels; ++ch)
+        preAmpBuffer.copyFrom (ch, 0, cleanDiBuffer.getReadPointer (ch), numSamples);
+
+    // Load APVTS parameters
     const float gateThresh = apvts.getRawParameterValue ("gate_threshold")->load();
     const bool  gateBypass = apvts.getRawParameterValue ("gate_bypass")->load() > 0.5f;
     noiseGate.setThreshold (gateThresh);
@@ -223,35 +236,67 @@ void ChugKnifeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     const float masterDb   = apvts.getRawParameterValue ("master_level")->load();
     masterGain.setTargetValue (juce::Decibels::decibelsToGain (masterDb));
 
-    // 2. SIGNAL PROCESSING PIPELINE
-    // Step A: Transpose / Pitch Shift (Applied first to feed shifted DI to downstream pedals)
-    pitchShifter.process (mainBusBuffer);
+    // Process front-end stages:
+    pitchShifter.process (preAmpBuffer);
+    tubeScreamer.process (preAmpBuffer);
+    chugger.process (preAmpBuffer);
 
-    // Step B: Tube Screamer Overdrive
-    tubeScreamer.process (mainBusBuffer);
-
-    // Step C: "O Chugger" Dynamic Palm Mute Sculptor
-    chugger.process (mainBusBuffer);
-
-    // Step D: Noise Gate (4-Cable Method detector routing)
-    // If external sidechain has audio, use sidechainBusBuffer (external 4CM).
-    // Otherwise, use cleanDiBuffer captured before distortion (internal 4CM).
-    if (sidechainConnected)
+    // 4. Stage 3: Send Output (Write processed signal out to the Amp)
+    if (hasSendBus && sendBus.getNumChannels() > 0)
     {
-        noiseGate.process (mainBusBuffer, &sidechainBusBuffer);
+        for (int ch = 0; ch < sendBus.getNumChannels(); ++ch)
+        {
+            const int srcCh = std::min (ch, inChannels - 1);
+            sendBus.copyFrom (ch, 0, preAmpBuffer.getReadPointer (srcCh), numSamples);
+        }
+    }
+
+    // 5. Stage 4: Return Input (Audio coming back from Amp) with Normalled Fallback
+    returnConnected = false;
+    if (hasReturnBus && returnBus.getNumChannels() > 0)
+    {
+        const float retMag = returnBus.getMagnitude (0, numSamples);
+        if (retMag > 1e-6f)
+            returnConnected = true;
+    }
+
+    const int postChannels = std::max (inChannels, outChannels);
+    postAmpBuffer.setSize (postChannels, numSamples, false, false, true);
+
+    if (returnConnected)
+    {
+        // True 4CM: Read the audio returning from the amplifier!
+        for (int ch = 0; ch < postChannels; ++ch)
+        {
+            const int srcCh = std::min (ch, returnBus.getNumChannels() - 1);
+            postAmpBuffer.copyFrom (ch, 0, returnBus.getReadPointer (srcCh), numSamples);
+        }
     }
     else
     {
-        noiseGate.process (mainBusBuffer, &cleanDiBuffer);
+        // Normalled connection (when running without external amp routing):
+        // Send feeds directly into Return internally!
+        for (int ch = 0; ch < postChannels; ++ch)
+        {
+            const int srcCh = std::min (ch, inChannels - 1);
+            postAmpBuffer.copyFrom (ch, 0, preAmpBuffer.getReadPointer (srcCh), numSamples);
+        }
     }
 
-    // Step E: Master Level
+    // 6. Stage 5: Noise Gate (The 4CM Heart)
+    // Detector listens to the clean DI from Input (cleanDiBuffer).
+    // Attenuation is applied to the post-amp audio (postAmpBuffer).
+    noiseGate.process (postAmpBuffer, &cleanDiBuffer);
+
+    // 7. Stage 6: Master Output (Post-Gate to Output)
     for (int i = 0; i < numSamples; ++i)
     {
         const float gain = masterGain.getNextValue();
-        for (int ch = 0; ch < mainBusBuffer.getNumChannels(); ++ch)
+        for (int ch = 0; ch < outChannels; ++ch)
         {
-            mainBusBuffer.getWritePointer (ch)[i] *= gain;
+            const int srcCh = std::min (ch, postChannels - 1);
+            const float sample = postAmpBuffer.getSample (srcCh, i) * gain;
+            outputBus.getWritePointer (ch)[i] = sample;
         }
     }
 }

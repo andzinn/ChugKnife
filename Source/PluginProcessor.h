@@ -41,7 +41,7 @@ public:
 
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
-    bool isSidechainActive() const { return sidechainConnected; }
+    bool isReturnConnected() const { return returnConnected; }
     float getGateReductionDb() const { return noiseGate.getCurrentReductionDb(); }
 
 private:
@@ -54,11 +54,13 @@ private:
     TubeScreamer tubeScreamer;
     Chugger chugger;
 
-    // Pre-allocated internal buffer for clean DI detection (internal 4CM mode)
+    // Internal scratch buffers for 4CM decoupled routing
     juce::AudioBuffer<float> cleanDiBuffer;
-    bool sidechainConnected = false;
+    juce::AudioBuffer<float> preAmpBuffer;
+    juce::AudioBuffer<float> postAmpBuffer;
+    bool returnConnected = false;
 
-    // Smoothed master gain
+    // Smoothed master output gain
     juce::SmoothedValue<float> masterGain;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ChugKnifeAudioProcessor)

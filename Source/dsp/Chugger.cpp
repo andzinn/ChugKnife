@@ -3,15 +3,13 @@
 
 void Chugger::ChannelState::reset()
 {
-    subCutFilter.reset();
-    lowPunchFilter.reset();
-    mudScoopFilter.reset();
-    clackFilter.reset();
-    lowBandLpf.reset();
+    dynamicHpFilter.reset();
+    clankBellFilter.reset();
+    lowDamperFilter.reset();
 
     envFast = 0.0f;
     envSlow = 0.0f;
-    envLowBand = 0.0f;
+    envTightness = 0.0f;
 }
 
 Chugger::Chugger()
@@ -21,17 +19,22 @@ Chugger::Chugger()
 void Chugger::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate;
-    smoothedChug.reset (sampleRate, 0.03); // 30 ms parameter smoothing
+    smoothedChug.reset (sampleRate, 0.02);
 
-    // Timing coefficients:
-    // Fast attack envelope: ~1.5 ms
-    envFastCoeff = std::exp (-1.0f / (0.0015f * static_cast<float> (sampleRate)));
-    // Slow decay envelope: ~35 ms
-    envSlowCoeff = std::exp (-1.0f / (0.035f * static_cast<float> (sampleRate)));
-    // Low-band energy smoother: ~15 ms
-    envLowCoeff  = std::exp (-1.0f / (0.015f * static_cast<float> (sampleRate)));
+    // Fast transient rise: ~1.2 ms
+    fastAttackCoeff = std::exp (-1.0f / (0.0012f * static_cast<float> (sampleRate)));
+    // Slow body decay: ~45 ms
+    slowDecayCoeff  = std::exp (-1.0f / (0.045f * static_cast<float> (sampleRate)));
+    // Tightness release: ~28 ms (fast recovery so open chords immediately regain low end)
+    tightDecayCoeff = std::exp (-1.0f / (0.028f * static_cast<float> (sampleRate)));
 
-    updateFilterCoefficients (chugParam);
+    for (auto& ch : channels)
+    {
+        ch.dynamicHpFilter.setType (juce::dsp::StateVariableTPTFilterType::highpass);
+        ch.dynamicHpFilter.setResonance (0.707f);
+    }
+
+    updateStaticCoefficients();
     reset();
 }
 
@@ -47,39 +50,22 @@ void Chugger::setChug (float chugAmount)
     smoothedChug.setTargetValue (chugParam);
 }
 
-void Chugger::updateFilterCoefficients (float chug)
+void Chugger::updateStaticCoefficients()
 {
     if (sampleRate <= 0.0) return;
 
-    // Sub-cut: HPF frequency moves from 65 Hz to 78 Hz as chug rises
-    const float hpfFreq = 65.0f + 13.0f * chug;
-    auto subCutCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighPass (sampleRate, hpfFreq, 0.707f);
+    // 1. Pick Clack / Bite Bell at 3.5 kHz (Q = 2.4, +6 dB boost shape)
+    const float clackGainLin = juce::Decibels::decibelsToGain (6.0f);
+    auto clackCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 3500.0f, 2.4f, clackGainLin);
 
-    // Dynamic Low Punch Bell (92 Hz, Q = 2.4, base boost scales with chug)
-    const float lowGainDb = 1.0f + 5.0f * chug;
-    const float lowGainLin = juce::Decibels::decibelsToGain (lowGainDb);
-    auto lowPunchCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 92.0f, 2.4f, lowGainLin);
-
-    // Dynamic Mud Scooper (280 Hz, Q = 1.8, base cut scales with chug)
-    const float mudCutDb = - (0.5f + 4.5f * chug);
-    const float mudCutLin = juce::Decibels::decibelsToGain (mudCutDb);
-    auto mudScoopCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 280.0f, 1.8f, mudCutLin);
-
-    // Pick Clack Bell (2.4 kHz, Q = 2.0, base presence boost)
-    const float clackGainDb = 0.5f + 4.0f * chug;
-    const float clackGainLin = juce::Decibels::decibelsToGain (clackGainDb);
-    auto clackCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 2400.0f, 2.0f, clackGainLin);
-
-    // Low band LPF (140 Hz) for harmonic saturation extraction
-    auto lowLpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, 140.0f, 0.707f);
+    // 2. Low-mid resonance damper at 150 Hz (Q = 1.8, -4.5 dB cut shape)
+    const float damperGainLin = juce::Decibels::decibelsToGain (-4.5f);
+    auto damperCoeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter (sampleRate, 150.0f, 1.8f, damperGainLin);
 
     for (auto& ch : channels)
     {
-        *ch.subCutFilter.coefficients   = *subCutCoeffs;
-        *ch.lowPunchFilter.coefficients = *lowPunchCoeffs;
-        *ch.mudScoopFilter.coefficients = *mudScoopCoeffs;
-        *ch.clackFilter.coefficients    = *clackCoeffs;
-        *ch.lowBandLpf.coefficients     = *lowLpfCoeffs;
+        *ch.clankBellFilter.coefficients = *clackCoeffs;
+        *ch.lowDamperFilter.coefficients = *damperCoeffs;
     }
 }
 
@@ -95,55 +81,54 @@ void Chugger::process (juce::AudioBuffer<float>& buffer)
     {
         const float chug = smoothedChug.getNextValue();
 
-        // If chug is nearly zero, effect is transparent
         if (chug < 0.005f)
-            continue;
+            continue; // Fully transparent at 0
 
         for (int c = 0; c < numChannels; ++c)
         {
             auto& state = channels[static_cast<size_t> (c)];
-            float x = buffer.getSample (c, i);
-
-            // 1. Subsonic cleanup (prevents power amp flub)
-            x = state.subCutFilter.processSample (x);
-
-            // 2. Transient Detonation Detector
-            // Differential envelope: fast rise vs slower decay
+            const float x = buffer.getSample (c, i);
             const float absX = std::abs (x);
-            state.envFast = envFastCoeff * state.envFast + (1.0f - envFastCoeff) * absX;
-            state.envSlow = envSlowCoeff * state.envSlow + (1.0f - envSlowCoeff) * absX;
 
-            const float transientDelta = std::max (0.0f, state.envFast - state.envSlow);
+            // 1. Transient Detonation & Palm-Mute Envelope Follower
+            state.envFast = fastAttackCoeff * state.envFast + (1.0f - fastAttackCoeff) * absX;
+            state.envSlow = slowDecayCoeff  * state.envSlow + (1.0f - slowDecayCoeff)  * absX;
 
-            // 3. Low-Band Crossover & Harmonic Saturation (< 140 Hz)
-            const float lowBand = state.lowBandLpf.processSample (x);
-            state.envLowBand = envLowCoeff * state.envLowBand + (1.0f - envLowCoeff) * std::abs (lowBand);
+            // Attack transient delta (isolated pick strike)
+            const float attackDelta = std::max (0.0f, state.envFast - state.envSlow);
 
-            // Asymmetric soft saturation on the low band:
-            // Generates subtle 2nd and 3rd harmonics: f(u) = (u + 0.12*u^2) / (1 + |u| + 0.12*u^2)
-            const float u = lowBand * (1.2f + 2.5f * chug);
-            const float u2 = u * u;
-            const float satLow = (u + 0.12f * u2) / (1.0f + std::abs (u) + 0.12f * u2);
+            // Tightness modulation: triggers on transient attack, then decays fast
+            if (attackDelta > state.envTightness)
+                state.envTightness = attackDelta;
+            else
+                state.envTightness *= tightDecayCoeff;
 
-            // 4. Dynamic Filtering Cascade:
-            // Low-end punch boosted during transient strike
-            const float lowPunch = state.lowPunchFilter.processSample (x);
-            // Mud scoop: cuts 280 Hz harder when low-end energy is high
-            const float mudScooped = state.mudScoopFilter.processSample (lowPunch);
-            // Clack: presence bite added on pick attack
-            const float clacked = state.clackFilter.processSample (mudScooped);
+            const float normTight = juce::jlimit (0.0f, 1.0f, state.envTightness * 3.5f);
 
-            // 5. Modulation & Blending:
-            // Dynamic Transient Bite injection
-            const float biteAmount = transientDelta * (chug * 0.7f);
-            const float transientBite = (clacked - mudScooped) * (1.0f + biteAmount * 2.5f);
+            // 2. Dynamic Pre-Gain Low-Cut (The Core "Anti-Flub" Tightening):
+            // - Open chords / idle: Cutoff sits at 45 Hz (100% natural bass girth).
+            // - On Palm-Mute strike: Cutoff dynamically leaps up to 140 Hz - 250 Hz (scaled by Chug).
+            const float dynamicCutoff = 45.0f + (normTight * chug * 205.0f);
+            state.dynamicHpFilter.setCutoffFrequency (dynamicCutoff);
 
-            // Combine low-end harmonic weight + sculpted core + transient clack
-            const float saturatedWeight = (satLow - lowBand) * (chug * 0.45f);
-            const float processedOutput = mudScooped + transientBite + saturatedWeight;
+            // Process through dynamic high-pass
+            const float tightenedSample = state.dynamicHpFilter.processSample (0, x);
 
-            // Dry/Wet blend governed by the Chug knob
-            const float finalSample = (1.0f - chug * 0.85f) * x + (chug * 0.85f) * processedOutput;
+            // 3. Transient "Pick Clank / Grind" Injection (3.5 kHz bite):
+            // Only injected during the initial 8-15 ms of pick attack.
+            const float clacked = state.clankBellFilter.processSample (tightenedSample);
+            const float clackBite = (clacked - tightenedSample) * (attackDelta * chug * 2.8f);
+
+            // 4. Low-End Resonance Damping (removes the lingering 150 Hz "tubby" ringing):
+            const float damped = state.lowDamperFilter.processSample (tightenedSample);
+            // Engage damper smoothly during palm mute decay
+            const float postDamped = tightenedSample + (damped - tightenedSample) * (normTight * chug * 0.85f);
+
+            // 5. Combine: Tightened signal + Attack Clank bite + Damped resonance
+            const float chuggedSignal = postDamped + clackBite;
+
+            // Smooth dry/wet crossfade based on the Chug knob
+            const float finalSample = (1.0f - chug * 0.9f) * x + (chug * 0.9f) * chuggedSignal;
 
             buffer.getWritePointer (c)[i] = finalSample;
         }

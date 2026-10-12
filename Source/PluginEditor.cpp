@@ -119,18 +119,18 @@ ChugKnifeAudioProcessorEditor::~ChugKnifeAudioProcessorEditor()
 
 void ChugKnifeAudioProcessorEditor::timerCallback()
 {
-    const bool scActive = processorRef.isSidechainActive();
-    const float redDb   = processorRef.getGateReductionDb();
+    const bool retActive = processorRef.isReturnConnected();
+    const float redDb    = processorRef.getGateReductionDb();
 
-    if (scActive)
+    if (retActive)
     {
-        gateStatusLabel.setText ("Routing: External Sidechain DI Active! (GR: " + juce::String (redDb, 1) + " dB)",
+        gateStatusLabel.setText ("4CM Mode: Send/Return Loop Active! (GR: " + juce::String (redDb, 1) + " dB)",
                                  juce::dontSendNotification);
         gateStatusLabel.setColour (juce::Label::textColourId, juce::Colours::lime);
     }
     else
     {
-        gateStatusLabel.setText ("Routing: Internal 4CM DI Active (GR: " + juce::String (redDb, 1) + " dB)",
+        gateStatusLabel.setText ("4CM Mode: Normalled / Single Track (GR: " + juce::String (redDb, 1) + " dB)",
                                  juce::dontSendNotification);
         gateStatusLabel.setColour (juce::Label::textColourId, juce::Colours::deepskyblue);
     }

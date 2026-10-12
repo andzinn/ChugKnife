@@ -6,32 +6,30 @@
 #include <cmath>
 
 /**
- * @brief "O Chugger" — The Ultimate 1-Knob Monster Processor for Heavy Guitar Rhythm.
+ * @brief "O Chugger" — Dynamic Palm-Mute Tightener & Transient Attack Shaper.
  *
- * Designed from the ground up by combining audio engineering acoustics and modern DSP:
+ * Designed to deliver the tightness and percussive aggression of analog boost pedals
+ * (Fortin 33 / TC Integrated Preamp / Precision Drive) WITHOUT their fatal flaw
+ * of permanently making the guitar sound thin, honky, and nasal on open chords.
  *
- * 1. Subsonic Flub High-Pass (65-75 Hz):
- *    Tightens unwanted sub-rumble that muddies high-gain amps and causes flubby intermodulation.
+ * Algorithm Architecture:
+ * 1. Intelligent Palm-Mute Detector:
+ *    Monitors transient impact vs. decay time. Recognizes when the player is executing
+ *    a damped percussive palm mute versus letting open chords sustain.
  *
- * 2. Transient Detonation Detector (Differential Envelope Follower):
- *    Detects the instantaneous attack of palm-muted pick strikes:
- *    Δ(t) = max(0, Env_fast(t) - Env_slow(t)).
+ * 2. Dynamic Pre-Tightening (Dynamic Low-Cut):
+ *    - Open chords: Filter sits transparently at ~40 Hz, preserving 100% of the guitar's
+ *      natural body, pickup richness, and low-end girth.
+ *    - Palm mutes: The cutoff dynamically shifts up to 140 Hz - 240 Hz (proportional to Chug),
+ *      instantly stripping the flubby sub-bass that causes amplifier blocking distortion.
  *
- * 3. Dynamic Low-End Resonator (92 Hz, Q=2.4):
- *    Expands dynamically on pick impact by up to +8.5 dB, producing that chest-thumping,
- *    percussive punch characteristic of elite metal rhythm productions.
+ * 3. Transient "Pick Clank / Grind" Attack Injector (3.5 kHz):
+ *    Injects aggressive percussive bite exclusively during the first 8-15 ms of pick attack.
+ *    Gives razor-sharp pick definition in low tunings without adding permanent high-end fizz.
  *
- * 4. Dynamic Mud Scoop (280 Hz, Q=1.8):
- *    Dynamically compresses the tubby, boxy low-mid energy during heavy palm mutes,
- *    ensuring the guitar remains tight and laser-focused.
- *
- * 5. Pick "Clack" & Bite Injector (2.4 kHz):
- *    Boosts crisp transient bite on pick attack to guarantee definition in fast djent
- *    riffs and extreme low drop-tunings.
- *
- * 6. Low-Band Asymmetric Harmonic Saturator (<140 Hz):
- *    Generates 2nd and 3rd order harmonics on low frequencies to impart psychoacoustic
- *    weight and visceral growl even through small monitors and headphones.
+ * 4. Low-Frequency Resonance Damping:
+ *    Damps loose ringing in the 120-180 Hz region during note decay, ensuring palm mutes
+ *    stop with surgical, bone-dry precision.
  */
 class Chugger
 {
@@ -42,7 +40,7 @@ public:
     void prepare (const juce::dsp::ProcessSpec& spec);
     void reset();
 
-    /** Sets the "Chug" monster knob value (0.0 to 1.0). */
+    /** Sets the "Chug" tightness and aggression knob (0.0 to 1.0). */
     void setChug (float chugAmount);
 
     /** Enables or bypasses the Chugger effect. */
@@ -59,38 +57,32 @@ private:
 
     juce::SmoothedValue<float> smoothedChug;
 
-    // Per-channel biquad filters and state variables
+    // Per-channel DSP filters and state
     struct ChannelState
     {
-        // Sub-cut 2nd order HPF
-        juce::dsp::IIR::Filter<float> subCutFilter;
+        // 1. Dynamic Variable State Filter (SVF) for instantaneous low-cut tightening
+        juce::dsp::StateVariableTPTFilter<float> dynamicHpFilter;
 
-        // Dynamic Low-End Resonator Bell (92 Hz)
-        juce::dsp::IIR::Filter<float> lowPunchFilter;
+        // 2. Transient Attack Clank Filter (Peaking bell at 3.5 kHz)
+        juce::dsp::IIR::Filter<float> clankBellFilter;
 
-        // Dynamic Mud Scooper Bell (280 Hz)
-        juce::dsp::IIR::Filter<float> mudScoopFilter;
+        // 3. Low-mid resonance damper bell (140 Hz)
+        juce::dsp::IIR::Filter<float> lowDamperFilter;
 
-        // Transient Clack Bell (2.4 kHz)
-        juce::dsp::IIR::Filter<float> clackFilter;
-
-        // Crossover filter for sub-band saturation (140 Hz)
-        juce::dsp::IIR::Filter<float> lowBandLpf;
-
-        // Envelope followers for transient detection
+        // Envelope followers for palm-mute and transient detection
         float envFast = 0.0f;
         float envSlow = 0.0f;
-        float envLowBand = 0.0f;
+        float envTightness = 0.0f;
 
         void reset();
     };
 
     std::array<ChannelState, kMaxChannels> channels;
 
-    // Smoothing coefficients
-    float envFastCoeff = 0.0f;
-    float envSlowCoeff = 0.0f;
-    float envLowCoeff  = 0.0f;
+    // Time constants for envelope tracking
+    float fastAttackCoeff  = 0.0f;
+    float slowDecayCoeff   = 0.0f;
+    float tightDecayCoeff  = 0.0f;
 
-    void updateFilterCoefficients (float chug);
+    void updateStaticCoefficients();
 };

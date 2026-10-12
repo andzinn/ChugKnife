@@ -1,50 +1,50 @@
 #include "TubeScreamer.h"
 #include <algorithm>
 
-void TubeScreamer::ChannelFilters::updateCoeffs (double sr, float tone)
+void TubeScreamer::ChannelState::reset()
 {
-    if (sr <= 0.0) return;
+    vc_z = 0.0;
+    vin_prev = 0.0;
+    vd_prev = 0.0;
+    iCf_prev = 0.0;
 
-    // 720 Hz high-pass filter (TS op-amp feedback RC network)
-    const float hpW = 2.0f * juce::MathConstants<float>::pi * 720.0f / static_cast<float> (sr);
-    hpCoeff = std::exp (-hpW);
-
-    // Active tone control: low-pass cutoff moves from 800 Hz up to 3500 Hz
-    const float toneFreq = 800.0f + 2700.0f * tone;
-    const float toneW = 2.0f * juce::MathConstants<float>::pi * toneFreq / static_cast<float> (sr);
-    toneLpCoeff = 1.0f - std::exp (-toneW);
-
-    // Post-clipping smoothing lowpass (around 10 kHz)
-    const float postW = 2.0f * juce::MathConstants<float>::pi * 10000.0f / static_cast<float> (sr);
-    postCoeff = 1.0f - std::exp (-postW);
-}
-
-void TubeScreamer::ChannelFilters::reset()
-{
-    hpZ1 = 0.0f;
-    toneLpZ1 = 0.0f;
-    postZ1 = 0.0f;
+    toneFilter.reset();
+    postLpf.reset();
 }
 
 TubeScreamer::TubeScreamer()
 {
-    updateFilterCoefficients();
+    updateToneCoefficients();
 }
 
 void TubeScreamer::prepare (const juce::dsp::ProcessSpec& spec)
 {
     sampleRate = spec.sampleRate;
-    smoothedDrive.reset (sampleRate, 0.02); // 20 ms smoothing
+
+    // 2x oversampling with polyphase IIR filter (ultra low latency, analog smoothness)
+    oversampling = std::make_unique<juce::dsp::Oversampling<float>> (
+        static_cast<size_t> (spec.numChannels),
+        1, // 2^1 = 2x oversampling
+        juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR,
+        true);
+
+    oversampling->initProcessing (static_cast<size_t> (spec.maximumBlockSize));
+    internalSampleRate = sampleRate * 2.0;
+
+    smoothedDrive.reset (sampleRate, 0.02);
     smoothedLevel.reset (sampleRate, 0.02);
 
-    updateFilterCoefficients();
+    updateToneCoefficients();
     reset();
 }
 
 void TubeScreamer::reset()
 {
-    for (auto& f : filters)
-        f.reset();
+    if (oversampling != nullptr)
+        oversampling->reset();
+
+    for (auto& s : channelStates)
+        s.reset();
 }
 
 void TubeScreamer::setDrive (float drive)
@@ -56,7 +56,7 @@ void TubeScreamer::setDrive (float drive)
 void TubeScreamer::setTone (float tone)
 {
     toneParam = juce::jlimit (0.0f, 1.0f, tone);
-    updateFilterCoefficients();
+    updateToneCoefficients();
 }
 
 void TubeScreamer::setLevel (float level)
@@ -65,10 +65,60 @@ void TubeScreamer::setLevel (float level)
     smoothedLevel.setTargetValue (levelParam);
 }
 
-void TubeScreamer::updateFilterCoefficients()
+void TubeScreamer::updateToneCoefficients()
 {
-    for (auto& f : filters)
-        f.updateCoeffs (sampleRate, toneParam);
+    if (sampleRate <= 0.0) return;
+
+    // TS808 Active Tone Stage: Shelving/tilt filter pivoting around 1.2 kHz
+    // Tone 0.0 -> -8.5 dB cut at highs
+    // Tone 0.5 -> 0 dB flat
+    // Tone 1.0 -> +8.5 dB boost at highs
+    const float toneGainDb = (toneParam - 0.5f) * 17.0f;
+    const float toneGainLin = juce::Decibels::decibelsToGain (toneGainDb);
+    auto toneCoeffs = juce::dsp::IIR::Coefficients<float>::makeHighShelf (sampleRate, 1200.0f, 0.707f, toneGainLin);
+
+    // TS808 Output buffer lowpass filter (R = 10k, C = 0.1 uF -> fc approx 7.2 kHz)
+    auto postLpfCoeffs = juce::dsp::IIR::Coefficients<float>::makeLowPass (sampleRate, 7200.0f, 0.707f);
+
+    for (auto& s : channelStates)
+    {
+        *s.toneFilter.coefficients = *toneCoeffs;
+        *s.postLpf.coefficients    = *postLpfCoeffs;
+    }
+}
+
+double TubeScreamer::solveDiodeVoltage (double iTarget, double Geq, double initialGuess) const
+{
+    const double vDenom = kEta * kVt; // ~0.0325 V
+    double vd = juce::jlimit (-1.2, 1.2, initialGuess);
+
+    // Newton-Raphson iteration with adaptive damping to prevent numerical overflow
+    for (int iter = 0; iter < 6; ++iter)
+    {
+        const double x = vd / vDenom;
+        // Clamp argument to avoid std::exp overflow
+        const double clampedX = juce::jlimit (-35.0, 35.0, x);
+
+        const double sinhVal = std::sinh (clampedX);
+        const double coshVal = std::cosh (clampedX);
+
+        const double fVal = Geq * vd + 2.0 * kIs * sinhVal - iTarget;
+        const double fPrime = Geq + (2.0 * kIs / vDenom) * coshVal;
+
+        if (std::abs (fPrime) < 1e-12)
+            break;
+
+        double deltaV = fVal / fPrime;
+        // Damping: limit voltage jump per step to prevent wild oscillations
+        deltaV = juce::jlimit (-0.08, 0.08, deltaV);
+
+        vd -= deltaV;
+
+        if (std::abs (deltaV) < 1e-6)
+            break; // Converged
+    }
+
+    return vd;
 }
 
 void TubeScreamer::process (juce::AudioBuffer<float>& buffer)
@@ -79,48 +129,85 @@ void TubeScreamer::process (juce::AudioBuffer<float>& buffer)
     const int numSamples = buffer.getNumSamples();
     const int numChannels = std::min (static_cast<int> (buffer.getNumChannels()), kMaxChannels);
 
-    for (int i = 0; i < numSamples; ++i)
-    {
-        const float drive = smoothedDrive.getNextValue();
-        const float level = smoothedLevel.getNextValue();
+    // 1. Oversample input to 2x (internal rate)
+    juce::dsp::AudioBlock<float> block (buffer);
+    auto oversampledBlock = oversampling->processSamplesUp (block);
 
-        // Gain range: from clean boost (+6 dB) to heavy screaming drive (+40 dB)
-        const float preGain = 1.5f + drive * 35.0f;
-        // Output makeup
-        const float outGain = 0.5f + level * 2.5f;
+    const int oversampledNumSamples = static_cast<int> (oversampledBlock.getNumSamples());
+    const double T = 1.0 / internalSampleRate;
+
+    // Ground branch discretization coefficients
+    // Cz = 0.047 uF, Rz = 4.7 kOhm -> fc = 720 Hz
+    const double alphaZ = T / (2.0 * kRz * kCz);
+    const double cZ1 = (1.0 - alphaZ) / (1.0 + alphaZ);
+    const double cZ2 = alphaZ / (1.0 + alphaZ);
+
+    // Feedback capacitor conductance: Gc = 2 * Cf / T
+    const double Gc = (2.0 * kCf) / T;
+
+    // Level output booster (TS808 Level control)
+    const float levelVal = smoothedLevel.getNextValue();
+    const float outMakeup = 0.4f + levelVal * 3.5f;
+
+    for (int i = 0; i < oversampledNumSamples; ++i)
+    {
+        const float driveVal = smoothedDrive.getNextValue();
+        // Feedback resistance: Rf = 51k + Drive * 500k
+        const double Rf = kRmin + static_cast<double> (driveVal) * kRpot;
+        const double Geq = (1.0 / Rf) + Gc;
 
         for (int ch = 0; ch < numChannels; ++ch)
         {
-            auto& f = filters[static_cast<size_t> (ch)];
-            float x = buffer.getSample (ch, i);
+            auto& s = channelStates[static_cast<size_t> (ch)];
+            float* channelData = oversampledBlock.getChannelPointer (static_cast<size_t> (ch));
 
-            // 1. High-pass pre-emphasis at 720 Hz (op-amp feedback loop)
-            const float hpOut = x - f.hpZ1;
-            f.hpZ1 = x * (1.0f - f.hpCoeff) + f.hpZ1 * f.hpCoeff;
+            // Scale input signal (guitar signal ~ 0.2V peak)
+            const double vin = static_cast<double> (channelData[i]) * 0.45;
 
-            // In Tube Screamer, the variable drive branch is highpassed, but mixed with clean pass
-            const float drivePath = hpOut * preGain;
-            const float mixedInput = x + drivePath;
+            // 1. Solve Ground RC Network (State equation for Cz)
+            const double vcz = cZ1 * s.vc_z + cZ2 * (vin + s.vin_prev);
+            s.vc_z = vcz;
+            s.vin_prev = vin;
 
-            // 2. Diode soft clipping with subtle asymmetric even harmonics
-            // Bias x slightly with a small DC offset that is removed later
-            const float biased = mixedInput + 0.05f * drive;
-            // Hyperbolic tangent soft saturator
-            const float clipped = std::tanh (biased);
+            // Current drawn from inverting node to ground:
+            const double iz = (vin - vcz) / kRz;
 
-            // 3. Active Tone Filter
-            // Low-pass component
-            f.toneLpZ1 += f.toneLpCoeff * (clipped - f.toneLpZ1);
+            // 2. Feedback Loop History Current (Cf)
+            const double iCf_hist = -Gc * s.vd_prev - s.iCf_prev;
+            const double iTarget = iz - iCf_hist;
 
-            // Tone mix: when tone > 0.5, mix in more high-frequency content; when < 0.5, darken
-            const float toneHigh = clipped - f.toneLpZ1;
-            const float toneOut = f.toneLpZ1 * (1.0f - toneParam * 0.4f) + toneHigh * (toneParam * 1.5f);
+            // 3. Newton-Raphson Non-Linear Diode Solver
+            const double vd = solveDiodeVoltage (iTarget, Geq, s.vd_prev);
 
-            // 4. Post-filter high cut to avoid harsh alias fizz
-            f.postZ1 += f.postCoeff * (toneOut - f.postZ1);
+            // Update Cf capacitor current state
+            const double iCf = Gc * (vd - s.vd_prev) - s.iCf_prev;
+            s.vd_prev = vd;
+            s.iCf_prev = iCf;
 
-            // 5. Output Level
-            buffer.getWritePointer (ch)[i] = f.postZ1 * outGain;
+            // 4. TS808 Output equation: Vout = Vin + Vd (Intrinsic clean-blend!)
+            const double vout = vin + vd;
+
+            channelData[i] = static_cast<float> (vout * 2.2);
+        }
+    }
+
+    // 2. Downsample back to host rate
+    oversampling->processSamplesDown (block);
+
+    // 3. Apply TS808 Tone Stack and Output Level at host rate
+    for (int ch = 0; ch < numChannels; ++ch)
+    {
+        auto& s = channelStates[static_cast<size_t> (ch)];
+        float* chData = buffer.getWritePointer (ch);
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // Active Tone EQ
+            float x = s.toneFilter.processSample (chData[i]);
+            // Output lowpass buffer filter
+            x = s.postLpf.processSample (x);
+
+            chData[i] = x * outMakeup;
         }
     }
 }
