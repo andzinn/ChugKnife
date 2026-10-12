@@ -1,17 +1,19 @@
 # STATE.md — Project Memory
 
 ## Current Position
-- **Milestone**: v1.0
-- **Current Phase**: Phase 4 - Concluído & Compilado com Sucesso!
-- **Status**: Binários VST3 e Standalone Gerados e Verificados (Exit code 0)
+- **Milestone**: v1.1 — "Fix the Core"
+- **Current Phase**: Phase 1 - Routing 2-in/2-out + Internal 4CM + Gate Detector Fix
+- **Status**: Plan 1.1 ready for execution (Inline mode)
 
-## Binários Compilados
-- **VST3 Plugin**: `D:\Vst Plguins\Plugin 1\build\ChugKnife_artefacts\Release\VST3\ChugKnife.vst3`
-- **Standalone App**: `D:\Vst Plguins\Plugin 1\build\ChugKnife_artefacts\Release\Standalone\ChugKnife.exe`
+## Executing Plan
+- Plan: `1-PLAN.md`
+- Tasks:
+  1. Simplify bus routing to 2-In/2-Out and implement internal 4CM pipeline
+  2. Rewrite NoiseGate detector with 23 ms sliding-window maximum and atomic reduction
+  3. Expose PitchShifter latency and wire delay compensation to NoiseGate
 
-## Verificação Empírica
-- Compilador: MSVC 19.51 (Visual Studio 2026 Community)
-- SDK do Windows: 10.0.26100.0
-- JUCE: 7.0.12 (via FetchContent)
-- Código de saída: 0 (sem erros)
-- Suporte a 4CM Sidechain, One-Knob Gate, Tone3000 Pitch Shifter, Screamer e The Chugger ativos e funcionais.
+## Next Steps
+1. Execute Plan 1.1 Task 1
+2. Execute Plan 1.1 Task 2
+3. Execute Plan 1.1 Task 3
+4. Compile and verify VST3 and Standalone
