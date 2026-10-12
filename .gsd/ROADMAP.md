@@ -9,8 +9,8 @@
 - [x] Plugin exposes exactly one stereo/mono input and one stereo/mono output
 - [x] Internal 4CM: gate detector keyed on the clean DI copied at block start; gain applied at block end
 - [x] Gate does not chatter on low notes (7/8-string range) and still closes tight
-- [ ] TS808: Drive 0 + Level max is a boost (bounded output, no extra makeup gain); Level is an attenuator like the pedal
-- [ ] TS808 tone stage simulated from the real RC network (R7/C5/RV/R8/C6/R9), not a generic shelf
+- [x] TS808: Drive 0 + Level max is a boost (bounded output, no extra makeup gain); Level is an attenuator like the pedal
+- [x] TS808 tone stage simulated from the real RC network (R7/C5/RV/R8/C6/R9), not a generic shelf
 - [ ] Chugger: transparent at 0; tightens low end only when lows dominate (palm mutes); boosts pick attack only on transients
 - [ ] Automated DSP test executable with numeric pass/fail checks for all of the above
 
@@ -22,7 +22,7 @@
 ripple-induced chatter on low notes, compensate pitch-shifter delay in the gate hold.
 
 ### Phase 2: TS808 Gain Staging and Circuit Model Rewrite
-**Status**: ⬜ Not Started
+**Status**: ✅ Complete
 **Objective**: Rewrite TubeScreamer with correct volt calibration, guaranteed-convergent diode solver,
 nodal tone-stage simulation and Level as an audio-taper attenuator.
 
