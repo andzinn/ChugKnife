@@ -1,35 +1,36 @@
 # ROADMAP.md
 
-> **Current Phase**: Complete Blueprint & Implementation v1.0
-> **Milestone**: v1.0
+> **Current Milestone**: v1.1 — "Fix the Core"
+> **Goal**: Make the plugin usable in any DAW (2-in/2-out), make the TS808 gain-stage correct,
+> and replace the Chugger with an algorithm that actually tightens palm mutes.
+> v1.0 archived in `.gsd/milestones/v1.0/`.
 
-## Must-Haves (from SPEC)
-- [x] Roteamento de áudio 4CM funcional via Sidechain / bus auxiliar
-- [x] Noise Gate One-Knob cirúrgico para metal moderno
-- [x] Pitch Shifter polifônico com lógica do Tone3000 (SOLA + Onset Re-sync)
-- [x] Tube Screamer clássico de 3 knobs
-- [x] O Chugger com DSP dinâmico de graves, médios e transientes
-- [x] APVTS com controle completo de parâmetros e UI nativa
-- [x] CMakeLists.txt moderno pronto para compilação
+## Must-Haves
+- [ ] Plugin exposes exactly one stereo/mono input and one stereo/mono output
+- [ ] Internal 4CM: gate detector keyed on the clean DI copied at block start; gain applied at block end
+- [ ] Gate does not chatter on low notes (7/8-string range) and still closes tight
+- [ ] TS808: Drive 0 + Level max is a boost (bounded output, no extra makeup gain); Level is an attenuator like the pedal
+- [ ] TS808 tone stage simulated from the real RC network (R7/C5/RV/R8/C6/R9), not a generic shelf
+- [ ] Chugger: transparent at 0; tightens low end only when lows dominate (palm mutes); boosts pick attack only on transients
+- [ ] Automated DSP test executable with numeric pass/fail checks for all of the above
 
 ## Phases
 
-### Phase 1: Arquitetura do Sistema e Estrutura CMake
-**Status**: ✅ Concluído
-**Objective**: Configurar CMakeLists.txt, esqueleto do PluginProcessor com suporte a barramento Sidechain (4CM) e declaração completa dos parâmetros no APVTS.
-**Requirements**: REQ-01, REQ-02, REQ-03
+### Phase 1: Routing 2-in/2-out + Internal 4CM + Gate Detector Fix
+**Status**: ⬜ Not Started
+**Objective**: Remove Send/Return buses, implement DI-keyed gate inside the block, fix the gate's
+ripple-induced chatter on low notes, compensate pitch-shifter delay in the gate hold.
 
-### Phase 2: Módulos DSP de Front-End (Noise Gate & Pitch Shifter)
-**Status**: ✅ Concluído
-**Objective**: Implementar a classe de NoiseGate cirúrgico One-Knob e a classe de PitchShifter polifônico inspirado no Tone3000 em arquivos DSP dedicados.
-**Requirements**: REQ-04, REQ-05
+### Phase 2: TS808 Gain Staging and Circuit Model Rewrite
+**Status**: ⬜ Not Started
+**Objective**: Rewrite TubeScreamer with correct volt calibration, guaranteed-convergent diode solver,
+nodal tone-stage simulation and Level as an audio-taper attenuator.
 
-### Phase 3: Módulos DSP de Distorção (Tube Screamer & O Chugger)
-**Status**: ✅ Concluído
-**Objective**: Implementar o TubeScreamer e o revolucionário processador "O Chugger" em arquivos DSP dedicados e integrá-los ao pipeline de áudio.
-**Requirements**: REQ-06, REQ-07
+### Phase 3: Chugger v3 — Palm-Mute-Aware Tightener
+**Status**: ⬜ Not Started
+**Objective**: Phase-coherent 3-band split; level-independent low-dominance compressor + transient
+attack shaper. No dry/wet blending.
 
-### Phase 4: Interface Gráfica Nativa e Integração Final
-**Status**: ✅ Concluído
-**Objective**: Construir o PluginEditor com layout nativo intuitivo, agrupando os 4 blocos e conectando todos os parâmetros ao APVTS via attachments.
-**Requirements**: REQ-08
+### Phase 4: Test Harness and Verification
+**Status**: ⬜ Not Started
+**Objective**: `ChugKnifeTests` console target with measurable assertions; build VST3; record evidence.

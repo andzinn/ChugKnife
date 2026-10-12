@@ -119,21 +119,11 @@ ChugKnifeAudioProcessorEditor::~ChugKnifeAudioProcessorEditor()
 
 void ChugKnifeAudioProcessorEditor::timerCallback()
 {
-    const bool retActive = processorRef.isReturnConnected();
-    const float redDb    = processorRef.getGateReductionDb();
-
-    if (retActive)
-    {
-        gateStatusLabel.setText ("4CM Mode: Send/Return Loop Active! (GR: " + juce::String (redDb, 1) + " dB)",
-                                 juce::dontSendNotification);
-        gateStatusLabel.setColour (juce::Label::textColourId, juce::Colours::lime);
-    }
-    else
-    {
-        gateStatusLabel.setText ("4CM Mode: Normalled / Single Track (GR: " + juce::String (redDb, 1) + " dB)",
-                                 juce::dontSendNotification);
-        gateStatusLabel.setColour (juce::Label::textColourId, juce::Colours::deepskyblue);
-    }
+    const float redDb = processorRef.getGateReductionDb();
+    gateStatusLabel.setText ("4CM Mode: DI-Keyed Gate (GR: " + juce::String (redDb, 1) + " dB)",
+                             juce::dontSendNotification);
+    gateStatusLabel.setColour (juce::Label::textColourId,
+                               redDb < -0.5f ? juce::Colours::lime : juce::Colours::deepskyblue);
 }
 
 void ChugKnifeAudioProcessorEditor::paint (juce::Graphics& g)

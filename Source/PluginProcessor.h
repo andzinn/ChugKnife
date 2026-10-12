@@ -41,7 +41,6 @@ public:
 
     juce::AudioProcessorValueTreeState& getAPVTS() { return apvts; }
 
-    bool isReturnConnected() const { return returnConnected; }
     float getGateReductionDb() const { return noiseGate.getCurrentReductionDb(); }
 
 private:
@@ -54,11 +53,8 @@ private:
     TubeScreamer tubeScreamer;
     Chugger chugger;
 
-    // Internal scratch buffers for 4CM decoupled routing
+    // Internal clean DI buffer for internal 4CM gating
     juce::AudioBuffer<float> cleanDiBuffer;
-    juce::AudioBuffer<float> preAmpBuffer;
-    juce::AudioBuffer<float> postAmpBuffer;
-    bool returnConnected = false;
 
     // Smoothed master output gain
     juce::SmoothedValue<float> masterGain;
