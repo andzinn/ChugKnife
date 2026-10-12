@@ -208,7 +208,7 @@ void TubeScreamer::process (juce::AudioBuffer<float>& buffer)
         {
             // Passive audio-taper Level attenuator (<= 0 dB; 1.0 -> 0 dB, 0.5 -> ~-15 dB, 0.0 -> mute)
             const float curLevel = smoothedLevel.getNextValue();
-            const float levelTaper = std::pow (curLevel, 2.5f);
+            const float levelTaper = (curLevel <= 0.001f) ? 0.0f : std::pow (curLevel, 2.5f);
 
             // Active Tone EQ (R7/C5 lowpass + high-shelf tone control)
             float x = s.r7c5Filter.processSample (chData[i]);
