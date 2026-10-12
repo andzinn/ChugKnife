@@ -1,16 +1,13 @@
-# Decisions — v1.1
+# Decisions — v1.2
 
-> v1.0 ADRs archived in `.gsd/milestones/v1.0/DECISIONS.md`.
+> *ADRs dos Milestones anteriores arquivados em `.gsd/milestones/v1.0/DECISIONS.md` e `.gsd/milestones/v1.1/DECISIONS.md`.*
 
-## ADR-101: Internal 4CM supersedes Send/Return buses
-Send/Return (ADR v1.0) broke DAW usability. 1-in/1-out; DI copied at block start keys the gate,
-gate applied at block end. Trade-off: amp-sim self-noise after the plugin is not gated.
+## ADR-201: TS808 Overdrive Gain & Tone Range Calibration
+O estágio de saturação do TubeScreamer deve permitir que a tensão ceifada pelos diodos gere distorção rica quando o Drive for aumentado (ganho de pequenos sinais até +40 dB), e o Tone deve atuar como filtro tilt ativo de amplo espectro sem filtros passa-baixas rígidos espúrios ceifando agudos a 720 Hz.
 
-## ADR-102: TS808 calibrated at 1.0 FS = 4 V, Level is an attenuator
-Removes the fictitious +18.7 dB makeup gain that caused the distortion wall.
-
-## ADR-103: Chugger keyed on low-band dominance, not on amplitude
-Level-independent, palm-mute-specific; phase-coherent band split instead of dry/wet blending.
-
-## ADR-104: Gate detector = 23 ms sliding maximum
-Removes intra-cycle chatter on fundamentals down to ~44 Hz.
+## ADR-202: Chugger como Unidade Cirúrgica de Pré-Ganho (Tight HPF + Attack Boost)
+Baseado no manual técnico e pedais modernos (Precision Drive, Fortin 33, Solar Chug):
+1. Filtro passa-altas de primeira ordem pré-ganho com corte ajustável de 150 Hz a 500 Hz (Tight knob).
+2. Boost de ataque de palheta em 2.2 kHz de até +14 dB.
+3. Ressonância de punch de gabinete na faixa de 85 a 105 Hz.
+4. Totalmente transparente com knob em 0.

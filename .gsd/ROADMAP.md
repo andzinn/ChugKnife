@@ -1,36 +1,36 @@
 # ROADMAP.md
 
-> **Current Milestone**: v1.1 — "Fix the Core"
-> **Goal**: Make the plugin usable in any DAW (2-in/2-out), make the TS808 gain-stage correct,
-> and replace the Chugger with an algorithm that actually tightens palm mutes.
-> v1.0 archived in `.gsd/milestones/v1.0/`.
+> **Current Milestone**: v1.2 — "Tone Precision & Dark Minimalist UI"
+> **Goal**: Entregar overdrive real e tom responsivo no TubeScreamer, redefinir o Chugger como a unidade cirúrgica definitiva de pré-ganho do metal moderno (Tight HPF 150-500Hz + Pick Attack 2.2kHz + Punch 90Hz baseados na literatura técnica fornecida), e criar a interface visual Dark Minimalist inspirada em Neural DSP e FabFilter.
+> *(Milestones v1.0 e v1.1 arquivados em `.gsd/milestones/`)*
 
 ## Must-Haves
-- [x] Plugin exposes exactly one stereo/mono input and one stereo/mono output
-- [x] Internal 4CM: gate detector keyed on the clean DI copied at block start; gain applied at block end
-- [x] Gate does not chatter on low notes (7/8-string range) and still closes tight
-- [x] TS808: Drive 0 + Level max is a boost (bounded output, no extra makeup gain); Level is an attenuator like the pedal
-- [x] TS808 tone stage simulated from the real RC network (R7/C5/RV/R8/C6/R9), not a generic shelf
-- [x] Chugger: transparent at 0; tightens low end only when lows dominate (palm mutes); boosts pick attack only on transients
-- [x] Automated DSP test executable with numeric pass/fail checks for all of the above
+- [ ] TS808: Drive entrega saturação de overdrive rica e dinâmica quando aberto, mantendo boost limpo quando zerado
+- [ ] TS808: Knob Tone possui alcance tonal dramático e expressivo (de aveludado e escuro a cortante e agressivo)
+- [ ] Chugger: Implementado como filtro pré-ganho de alta precisão com corte Tight ajustável (150 Hz a 500 Hz) + Boost de estalo de palheta (2.2 kHz) + Soco de gabinete (90 Hz)
+- [ ] Chugger: Transparência total em Chug = 0 e aperto percussivo evidente para afinações graves (Drop C até Drop E/8 cordas)
+- [ ] Impeccable Shape: Design brief da interface completo com arquitetura de informação, paleta Dark Minimalist (Neural DSP style) e layout
+- [ ] PluginEditor: Nova interface gráfica nativa em JUCE com visual moderno dark, knobs vetoriais customizados com anéis luminosos e medidores dinâmicos de alta precisão
+- [ ] Automated Tests: Test harness `ChugKnifeTests` atualizado e com 100% das asserções aprovadas
 
 ## Phases
 
-### Phase 1: Routing 2-in/2-out + Internal 4CM + Gate Detector Fix
-**Status**: ✅ Complete
-**Objective**: Remove Send/Return buses, implement DI-keyed gate inside the block, fix the gate's
-ripple-induced chatter on low notes, compensate pitch-shifter delay in the gate hold.
+### Phase 1: TubeScreamer Overdrive & Wide-Range Tone Overhaul
+**Status**: ⬜ Not Started
+**Objective**: Corrigir a faixa de ganho e saturação dos diodos no estágio de clipping para entregar overdrive real e dinâmico, e reformular o filtro de Tom para ampla variação tímbrica sem abafamento espúrio.
 
-### Phase 2: TS808 Gain Staging and Circuit Model Rewrite
-**Status**: ✅ Complete
-**Objective**: Rewrite TubeScreamer with correct volt calibration, guaranteed-convergent diode solver,
-nodal tone-stage simulation and Level as an audio-taper attenuator.
+### Phase 2: Chugger Rebirth — Modern Metal Tight & Attack Engine
+**Status**: ⬜ Not Started
+**Objective**: Reformular o Chugger com base no manual de engenharia fornecido: filtro passa-altas pré-ganho de corte ajustável (Tight 150 Hz a 500 Hz), boost de transiente em 2.2 kHz e ressonância de punch a 90 Hz.
 
-### Phase 3: Chugger v3 — Palm-Mute-Aware Tightener
-**Status**: ✅ Complete
-**Objective**: Phase-coherent 3-band split; level-independent low-dominance compressor + transient
-attack shaper. No dry/wet blending.
+### Phase 3: Impeccable Shape — Arquitetura de Design do PluginEditor
+**Status**: ⬜ Not Started
+**Objective**: Definir o brief de design completo da interface: layout de 4 módulos em rack moderno, paleta de cores Neural DSP / FabFilter, tipografia técnica e especificações dos componentes visuais.
 
-### Phase 4: Test Harness and Verification
-**Status**: ✅ Complete
-**Objective**: `ChugKnifeTests` console target with measurable assertions; build VST3; record evidence.
+### Phase 4: Implementação da Interface Gráfica (Neural DSP / Dark Minimalist)
+**Status**: ⬜ Not Started
+**Objective**: Construir o LookAndFeel customizado no JUCE C++, novos sliders rotativos vetoriais com arco neon, display de atenuação dinâmico do gate e layout responsivo polido.
+
+### Phase 5: Testes Automatizados & Verificação Final
+**Status**: ⬜ Not Started
+**Objective**: Atualizar `ChugKnifeTests`, validar o comportamento sonoro de todos os módulos e compilar os binários VST3 e Standalone finais.
