@@ -2,10 +2,9 @@
 
 ## Current Position
 - **Milestone**: v1.2 — "Tone Precision & Dark Minimalist UI"
-- **Current Phase**: Phase 3: Impeccable Shape — Arquitetura de Design do PluginEditor
-- **Status**: Phases 1 e 2 concluídas com sucesso (TubeScreamer Overdrive + Chugger Rebirth aprovados em 22/22 testes). Pronto para executar o Impeccable Shape e a nova UI Dark Minimalist inspirada em Neural DSP e FabFilter.
+- **Current Phase**: Phase 4: Implementação da Interface Gráfica (Neural DSP / Dark Minimalist)
+- **Status**: Phases 1, 2 e 3 concluídas com sucesso. Design brief definido em `DESIGN.md`. Pronto para implementar a interface gráfica completa no JUCE C++.
 
 ## Próximos Passos Imediatos
-1. Executar Phase 3: Impeccable Shape da nova UI (Neural DSP / FabFilter Dark Minimalist Brief)
-2. Executar Phase 4: Construção do PluginEditor nativo em JUCE C++ (Custom LookAndFeel, knobs vetoriais com glow rings, medidor de Gain Reduction em tempo real)
-3. Executar Phase 5: Verificação empírica automatizada e compilação final dos binários Release VST3 e Standalone
+1. Executar Phase 4: Construção do PluginEditor nativo em JUCE C++ (Custom LookAndFeel, knobs vetoriais com glow rings, medidor de Gain Reduction em tempo real)
+2. Executar Phase 5: Verificação empírica automatizada e compilação final dos binários Release VST3 e Standalone
