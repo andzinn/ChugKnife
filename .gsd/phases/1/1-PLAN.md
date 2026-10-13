@@ -5,133 +5,84 @@ wave: 1
 gap_closure: false
 depends_on: []
 files_modified:
-  - Source/PluginProcessor.h
-  - Source/PluginProcessor.cpp
-  - Source/PluginEditor.h
-  - Source/PluginEditor.cpp
-  - Source/dsp/NoiseGate.h
-  - Source/dsp/NoiseGate.cpp
-  - Source/dsp/PitchShifter.h
-  - Source/dsp/PitchShifter.cpp
+  - Source/dsp/TubeScreamer.h
+  - Source/dsp/TubeScreamer.cpp
 autonomous: true
 must_haves:
   truths:
-    - "Plugin exposes standard 2-in / 2-out (Stereo/Mono matching) audio buses"
-    - "Noise gate detector runs on clean DI captured at block start and attenuates at block end"
-    - "Noise gate detector uses a 23 ms sliding-window maximum eliminating ripple on low notes down to 44 Hz"
-    - "Pitch shifter delay is compensated in the gate hold window"
+    - "TubeScreamer Drive 0 maintains the existing clean/mid boost behavior"
+    - "TubeScreamer Drive > 0 provides rich, warm, dynamic analog overdrive distortion with responsive touch dynamics"
+    - "TubeScreamer Tone control provides wide, audible tonal variation from dark/warm (0.0) to cutting/aggressive (1.0) without premature high-frequency choking"
   artifacts:
-    - "Source/PluginProcessor.cpp"
-    - "Source/dsp/NoiseGate.cpp"
-    - "Source/dsp/PitchShifter.h"
+    - "Source/dsp/TubeScreamer.h"
+    - "Source/dsp/TubeScreamer.cpp"
 ---
 
-# Plan 1.1: Routing 2-In/2-Out, Internal 4CM and Ripple-Free Gate Detector
+# Plan 1.1 (Milestone v1.2): TubeScreamer Overdrive & Wide-Range Tone Overhaul
 
 ## Objective
-Remove the complex and broken Send/Return 4-bus architecture, restoring standard single-track 2-in/2-out (stereo/mono) DAW compatibility. Key the noise gate internally from the pristine DI buffer copied at block start, rewrite the gate envelope detector to use a 23 ms sliding-window peak detector that eliminates intra-cycle ripple/chatter on low guitar tunings (down to 44 Hz), and dynamically compensate pitch-shifter latency in the gate hold timer.
+Revamp the TubeScreamer DSP module so that it functions both as an authentic clean/mid boost (at Drive 0) AND as a rich, singing, dynamic analog overdrive (as Drive increases). Eliminate the spurious cascading 723 Hz lowpass filter that choked all high-frequency harmonics, and reconstruct the active Tone control with an expressive ±15 dB range pivoting around 1.2 kHz.
 
 ## Context
 Load these files for context:
-- .gsd/SPEC.md
+- .gsd/ROADMAP.md
 - .gsd/DECISIONS.md
-- .gsd/phases/1/RESEARCH.md
-- Source/PluginProcessor.h
-- Source/PluginProcessor.cpp
-- Source/dsp/NoiseGate.h
-- Source/dsp/NoiseGate.cpp
-- Source/dsp/PitchShifter.h
+- Source/dsp/TubeScreamer.h
+- Source/dsp/TubeScreamer.cpp
 
 ## Tasks
 
 <task type="auto">
-  <name>Task 1: Simplify bus routing to 2-In/2-Out and implement internal 4CM pipeline</name>
+  <name>Task 1: Recalibrate Drive scaling for rich, dynamic overdrive distortion</name>
   <files>
-    Source/PluginProcessor.h
-    Source/PluginProcessor.cpp
-    Source/PluginEditor.h
-    Source/PluginEditor.cpp
+    Source/dsp/TubeScreamer.h
+    Source/dsp/TubeScreamer.cpp
   </files>
   <action>
-    1. In PluginProcessor.h and PluginProcessor.cpp:
-       - Change BusesProperties constructor to only declare Main Input (stereo) and Main Output (stereo). Remove Return and Send auxiliary buses.
-       - In isBusesLayoutSupported(), enforce: main input equals main output, and set is either mono or stereo. Remove all checks for aux bus 1.
-       - Remove returnConnected, preAmpBuffer, and postAmpBuffer scratch buffers. Keep cleanDiBuffer and ensure it is sized in prepareToPlay (maxChannels, samplesPerBlock) and cleared in releaseResources.
-       - In processBlock:
-         a) Determine inChannels and outChannels from main buffer.
-         b) Copy input audio to cleanDiBuffer at the very start of the block.
-         c) Process the main buffer in-place sequentially: PitchShifter -> TubeScreamer -> Chugger.
-         d) Feed cleanDiBuffer as the detector source to NoiseGate::process(buffer, &cleanDiBuffer).
-         e) Apply master output gain.
-       - Remove isReturnConnected() method or update to return false; update PluginEditor to show clean status message without return bus polling.
-    AVOID: Keeping extra audio buses or dynamic heap allocation in processBlock.
-    USE: Single in-place main buffer processing with pre-allocated cleanDiBuffer.
+    1. In TubeScreamer.cpp:
+       - Adjust the drive gain path and feedback loop:
+         At Drive = 0, maintain current bounded boost characteristics.
+         As Drive increases from 0.0 to 1.0, increase the input signal drive into the non-linear diode clipping network exponentially (providing up to +36 dB of extra drive into the clipping stage).
+         Ensure that the diode saturation component scales musical distortion and sustain into the output, generating rich 2nd and 3rd harmonic overtones rather than being masked by the raw dry signal.
+       - Preserve smooth sample-rate scaling and anti-aliasing via 4x oversampling.
+    AVOID: Keeping the clipped diode voltage drowned out by clean unamplified input.
+    USE: Musical non-linear gain scaling that allows the 1N4148 diodes to sing and compress organically when Drive is pushed.
   </action>
   <verify>
     cmake --build build --config Release --target ChugKnife_VST3
   </verify>
   <done>
-    PluginProcessor has only 1 input and 1 output bus; compiles cleanly without aux bus dependencies.
+    Drive knob yields progressive, rich overdrive harmonics from 0% to 100%.
   </done>
 </task>
 
 <task type="auto">
-  <name>Task 2: Rewrite NoiseGate detector with 23 ms sliding-window maximum and atomic reduction</name>
+  <name>Task 2: Eliminate choking 723 Hz LPF and implement expressive wide-range Tone control</name>
   <files>
-    Source/dsp/NoiseGate.h
-    Source/dsp/NoiseGate.cpp
+    Source/dsp/TubeScreamer.h
+    Source/dsp/TubeScreamer.cpp
   </files>
   <action>
-    1. In NoiseGate.h and NoiseGate.cpp:
-       - Replace the leaky single-pole envelope follower with a 23 ms sliding-window peak tracker (23 x 1 ms circular ring of cell maximums) plus ongoing sub-cell peak tracking.
-       - At any sample, detected peak = max(cell_ring_max, current_cell_peak). This is guaranteed to be flat and ripple-free for notes >= 44 Hz (period <= 22.7 ms).
-       - Maintain the bandpass filter on detector input (90 Hz HPF, 4.2 kHz LPF) to keep low rumble and high fizz out of detection.
-       - Update the state machine: hysteresis opens at thresholdDb, closes at thresholdDb - 5.0 dB.
-       - Hold counter: base hold is 12 ms, plus extraHoldSamples passed from pitch shifter delay.
-       - Gain smoothing: attack 0.15 ms, release 6 ms downward expander down to -90 dB.
-       - Change currentGainDb to std::atomic<float> for thread-safe GUI meter reading without data races.
-       - Add setExtraHoldSamples(int extraSamples) method.
-    AVOID: One-pole leaky peak follower on the raw audio signal which drops 17 dB between cycle peaks on low B/F# strings.
-    USE: Sliding-window block-maximum over 23 ms.
-  </action>
-  <verify>
-    cmake --build build --config Release --target ChugKnife_VST3
-  </verify>
-  <done>
-    NoiseGate operates with 23 ms sliding window peak detector, thread-safe atomic metering, and compiles cleanly.
-  </done>
-</task>
-
-<task type="auto">
-  <name>Task 3: Expose PitchShifter latency and wire delay compensation to NoiseGate</name>
-  <files>
-    Source/dsp/PitchShifter.h
-    Source/dsp/PitchShifter.cpp
-    Source/PluginProcessor.cpp
-  </files>
-  <action>
-    1. In PitchShifter.h and PitchShifter.cpp:
-       - Add float getCurrentDelaySamples() const method returning (writePos - tapA) when active, or 0.0f if bypassed or semitones == 0.
-    2. In PluginProcessor.cpp:
-       - Retrieve the shifter latency via pitchShifter.getCurrentDelaySamples() and pass it to noiseGate.setExtraHoldSamples() before calling noiseGate.process().
-    3. Verify and compile both VST3 and Standalone targets.
+    1. In TubeScreamer.h and TubeScreamer.cpp:
+       - Remove the cascading `r7c5Filter` that was filtering the entire signal at 723 Hz and suffocating the tone stack.
+       - Re-voice `toneFilter` as an active tilt/shelving network pivoting at 1.2 kHz:
+         Tone 0.0: Smooth roll-off of highs (-14 dB at 4 kHz) for warm, dark, creamy neck tones.
+         Tone 0.5: Natural, balanced response.
+         Tone 1.0: Sharp, biting high-mid boost (+15 dB at 3.5 kHz) for modern aggressive cutting presence.
+       - Retain only an ultrasonic RF protection lowpass filter at 16 kHz.
+    AVOID: Cascading a lowpass at 723 Hz on the main audio path.
+    USE: Wide-range active tone filtering with pivot at 1.2 kHz and full audible harmonic transmission.
   </action>
   <verify>
     cmake --build build --config Release --target ChugKnife_VST3 ChugKnife_Standalone
   </verify>
   <done>
-    Pitch shifter tap latency is communicated to noise gate hold timer; both VST3 and Standalone targets build with exit code 0.
+    Tone control produces dramatic, musical sonic variations across its full travel.
   </done>
 </task>
 
 ## Must-Haves
 After all tasks complete, verify:
-- [ ] VST3 and Standalone targets compile successfully with exit code 0
-- [ ] Plugin processor defines 1 input bus and 1 output bus (mono/stereo)
-- [ ] Noise gate detector does not decay between cycles on low frequencies (sliding window >= 23 ms)
-- [ ] cleanDiBuffer is isolated from drive/distortion stages and passed to gate detector
-
-## Success Criteria
-- [ ] All 3 tasks verified passing
-- [ ] Must-haves confirmed
-- [ ] No compilation warnings or regressions
+- [ ] VST3 and Standalone targets build with exit code 0
+- [ ] Drive 0 remains a clean boost; Drive 1.0 provides singing overdrive
+- [ ] Tone knob from 0.0 to 1.0 spans from warm/dark to bright/cutting

@@ -16,7 +16,7 @@
 ## Phases
 
 ### Phase 1: TubeScreamer Overdrive & Wide-Range Tone Overhaul
-**Status**: ⬜ Not Started
+**Status**: 🟩 Completed
 **Objective**: Corrigir a faixa de ganho e saturação dos diodos no estágio de clipping para entregar overdrive real e dinâmico, e reformular o filtro de Tom para ampla variação tímbrica sem abafamento espúrio.
 
 ### Phase 2: Chugger Rebirth — Modern Metal Tight & Attack Engine

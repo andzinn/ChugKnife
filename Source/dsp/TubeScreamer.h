@@ -40,7 +40,8 @@ private:
     static constexpr int kMaxChannels = 2;
 
     // TS808 Physical Circuit Constants
-    static constexpr double kVoltFullScale = 4.0;   // 1.0 FS = 4.0 V
+    static constexpr double kVinScale = 0.12;       // 1.0 FS -> 120 mV peak into physical clipping circuit
+    static constexpr double kVoutNorm = 0.72;       // Nominal diode saturation output reference
     static constexpr double kRz = 4700.0;           // 4.7 kOhm ground resistor
     static constexpr double kCz = 0.047e-6;         // 0.047 uF ground capacitor (720 Hz cutoff)
     static constexpr double kRmin = 51000.0;        // 51 kOhm minimum feedback resistance
@@ -72,7 +73,6 @@ private:
         double iCf_prev = 0.0;
 
         // Tone network filters (host rate)
-        juce::dsp::IIR::Filter<float> r7c5Filter;
         juce::dsp::IIR::Filter<float> toneFilter;
         juce::dsp::IIR::Filter<float> postLpf;
 

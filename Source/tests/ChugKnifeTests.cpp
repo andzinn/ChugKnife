@@ -163,6 +163,71 @@ bool testTubeScreamerGainStaging()
     float hotOut = hotBuf.getSample (0, numSamples - 1);
     TEST_ASSERT (!std::isnan (hotOut) && !std::isinf (hotOut), "Diode solver converges cleanly without NaN/Inf on extreme inputs");
 
+    // 4. Test Overdrive Saturation Range: Drive 1.0 generates rich overdrive & sustain
+    screamer.setLevel (0.7f);
+    screamer.setTone (0.5f);
+    screamer.setDrive (0.0f);
+    juce::AudioBuffer<float> odCleanBuf (2, numSamples);
+    juce::AudioBuffer<float> odDirtyBuf (2, numSamples);
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float s = 0.2f * std::sin (2.0f * juce::MathConstants<float>::pi * 1000.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        odCleanBuf.setSample (0, i, s);
+        odCleanBuf.setSample (1, i, s);
+        odDirtyBuf.setSample (0, i, s);
+        odDirtyBuf.setSample (1, i, s);
+    }
+    for (int pos = 0; pos < numSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, numSamples - pos);
+        juce::AudioBuffer<float> b (odCleanBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        screamer.process (b);
+    }
+    float cleanRms = odCleanBuf.getRMSLevel (0, numSamples / 2, numSamples / 2);
+
+    screamer.setDrive (1.0f);
+    for (int pos = 0; pos < numSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, numSamples - pos);
+        juce::AudioBuffer<float> b (odDirtyBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        screamer.process (b);
+    }
+    float dirtyRms = odDirtyBuf.getRMSLevel (0, numSamples / 2, numSamples / 2);
+    TEST_ASSERT (dirtyRms > cleanRms * 1.5f, "Drive 1.0 provides rich saturated overdrive sustain over Drive 0.0");
+
+    // 5. Test Tone Control Dramatic Range: Tone 0.0 vs Tone 1.0 at 3500 Hz has >= 15 dB range
+    screamer.setDrive (0.5f);
+    screamer.setLevel (0.7f);
+    screamer.setTone (0.0f);
+    juce::AudioBuffer<float> toneDarkBuf (2, numSamples);
+    juce::AudioBuffer<float> toneBrightBuf (2, numSamples);
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const float s = 0.15f * std::sin (2.0f * juce::MathConstants<float>::pi * 3500.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        toneDarkBuf.setSample (0, i, s);
+        toneDarkBuf.setSample (1, i, s);
+        toneBrightBuf.setSample (0, i, s);
+        toneBrightBuf.setSample (1, i, s);
+    }
+    for (int pos = 0; pos < numSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, numSamples - pos);
+        juce::AudioBuffer<float> b (toneDarkBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        screamer.process (b);
+    }
+    float darkRms = toneDarkBuf.getRMSLevel (0, numSamples / 2, numSamples / 2);
+
+    screamer.setTone (1.0f);
+    for (int pos = 0; pos < numSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, numSamples - pos);
+        juce::AudioBuffer<float> b (toneBrightBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        screamer.process (b);
+    }
+    float brightRms = toneBrightBuf.getRMSLevel (0, numSamples / 2, numSamples / 2);
+    float toneDiffDb = juce::Decibels::gainToDecibels (brightRms / std::max (1e-5f, darkRms));
+    TEST_ASSERT (toneDiffDb >= 15.0f, "Tone control provides >= 15 dB dramatic range between dark (0.0) and bright (1.0)");
+
     return true;
 }
 
