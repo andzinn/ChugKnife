@@ -1,6 +1,19 @@
+# Build artifacts
 build/
+bin/
+obj/
+out/
+
+# IDE & Editor caches
 .vs/
 .vscode/
 *.user
 *.suo
 *.VC.db
+.codex/
+.gemini/
+.idea/
+
+# OS specific
+Thumbs.db
+.DS_Store
