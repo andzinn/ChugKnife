@@ -276,33 +276,53 @@ bool testChuggerPhaseCoherenceAndDominance()
         TEST_ASSERT (diffDb < 0.15f, juce::String ("Chug 0 magnitude is transparent at " + juce::String (freq) + " Hz (deviation < 0.15 dB)").toRawUTF8());
     }
 
-    // 2. Palm-Mute Tightening Test:
-    // Low-heavy signal (90 Hz fundamental dominating) triggers dynamic reduction when Chug = 1.0
+    // 2. Tight HPF Sub-Bass Cut Test (Chug = 1.0)
+    // 60 Hz fundamental (sub-bass / 8-string low F#) must be cut by >= 10 dB to prevent blocking distortion
     chugger.setChug (1.0f);
     chugger.reset();
 
-    const int chugTestSamples = static_cast<int> (sampleRate * 0.2); // 200 ms
-    juce::AudioBuffer<float> lowHeavy (2, chugTestSamples);
+    const int chugTestSamples = static_cast<int> (sampleRate * 0.15); // 150 ms
+    juce::AudioBuffer<float> subBassBuf (2, chugTestSamples);
     for (int i = 0; i < chugTestSamples; ++i)
     {
-        // 90 Hz strong fundamental at 0.5 amplitude
-        const float s = 0.5f * std::sin (2.0f * juce::MathConstants<float>::pi * 90.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
-        lowHeavy.setSample (0, i, s);
-        lowHeavy.setSample (1, i, s);
+        const float s = 0.5f * std::sin (2.0f * juce::MathConstants<float>::pi * 60.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        subBassBuf.setSample (0, i, s);
+        subBassBuf.setSample (1, i, s);
     }
 
     for (int pos = 0; pos < chugTestSamples; pos += blockSize)
     {
         const int curBlock = std::min (blockSize, chugTestSamples - pos);
-        juce::AudioBuffer<float> blockBuf (lowHeavy.getArrayOfWritePointers(), 2, pos, curBlock);
+        juce::AudioBuffer<float> blockBuf (subBassBuf.getArrayOfWritePointers(), 2, pos, curBlock);
         chugger.process (blockBuf);
     }
 
-    // Verify low-band is clamped during decay (palm-mute tightening active)
-    const float lateRms = lowHeavy.getRMSLevel (0, chugTestSamples - 2000, 2000);
-    const float inputRms = 0.5f * 0.7071f;
-    const float reductionDb = juce::Decibels::gainToDecibels (lateRms / inputRms);
-    TEST_ASSERT (reductionDb < -4.0f, "Chugger dynamically clamps low-frequency bloom during palm-mute resonance");
+    const float subBassOutRms = subBassBuf.getRMSLevel (0, chugTestSamples / 2, chugTestSamples / 2);
+    const float subBassInRms  = 0.5f * 0.7071f;
+    const float cutDb = juce::Decibels::gainToDecibels (subBassOutRms / subBassInRms);
+    TEST_ASSERT (cutDb <= -10.0f, "Chug 1.0 applies aggressive Tight HPF cut (<= -10 dB) at 60 Hz sub-bass");
+
+    // 3. Pick Attack Clank Boost Test (Chug = 1.0)
+    // 2200 Hz pick impact frequency must receive at least +6.0 dB boost
+    juce::AudioBuffer<float> attackBuf (2, chugTestSamples);
+    for (int i = 0; i < chugTestSamples; ++i)
+    {
+        const float s = 0.2f * std::sin (2.0f * juce::MathConstants<float>::pi * 2200.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        attackBuf.setSample (0, i, s);
+        attackBuf.setSample (1, i, s);
+    }
+
+    for (int pos = 0; pos < chugTestSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, chugTestSamples - pos);
+        juce::AudioBuffer<float> blockBuf (attackBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        chugger.process (blockBuf);
+    }
+
+    const float attackOutRms = attackBuf.getRMSLevel (0, chugTestSamples / 2, chugTestSamples / 2);
+    const float attackInRms  = 0.2f * 0.7071f;
+    const float boostDb = juce::Decibels::gainToDecibels (attackOutRms / attackInRms);
+    TEST_ASSERT (boostDb >= +6.0f, "Chug 1.0 provides aggressive pick attack clank boost (>= +6 dB) at 2.2 kHz");
 
     return true;
 }

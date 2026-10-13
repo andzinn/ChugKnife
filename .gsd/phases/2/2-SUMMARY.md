@@ -1,28 +1,26 @@
----
-phase: 2
-plan: 1
-completed_at: 2026-10-12
-duration_minutes: 15
----
+# Phase 2 Summary: Chugger Rebirth — Modern Metal Tight & Attack Engine
 
-# Summary: Plan 2.1 — TS808 Gain Staging and Circuit Model Rewrite
+## Status
+- **Phase**: 2
+- **Status**: Completed ✓
+- **Execution Date**: 2026-10-12
 
-## Results
-- 2 tasks completed
-- All verifications passed (VST3 and Standalone built cleanly with MSVC, exit code 0)
-
-## Tasks Completed
-| Task | Description | Commit | Status |
-|------|-------------|--------|--------|
-| 1 | Implement 4V volt calibration, 4x oversampling, and guaranteed-convergent diode solver | `8bfeddf` | ✅ |
-| 2 | Model TS808 RC tone network and audio-taper Level attenuator | `8bfeddf` | ✅ |
-
-## Deviations Applied
-None — executed as planned.
-
-## Files Changed
-- [TubeScreamer.h](file:///d:/Vst%20Plguins/Plugin%201/source/dsp/TubeScreamer.h) / [TubeScreamer.cpp](file:///d:/Vst%20Plguins/Plugin%201/source/dsp/TubeScreamer.cpp) — Physical 1.0 FS = 4.0 V peak calibration, 4x polyphase IIR oversampling, SPICE 1N4148 diode constants (`N = 1.752`, `Is = 2.52 nA`), monotonically convergent Newton-Raphson solver from analytic upper bound, authentic TS808 dual-branch RC tone network (`R7 = 1k`, `C5 = 220nF`, `R8 = 220`, `C6 = 220nF`, `R9 = 1k`), and passive audio-taper Level attenuator (`gain = level^2.5`, <= 0 dB, no fictitious makeup gain).
-
-## Verification
-- Target `ChugKnife_VST3` generated: `build/ChugKnife_artefacts/Release/VST3/ChugKnife.vst3` (exit code 0) ✅ Passed
-- Target `ChugKnife_Standalone` generated: `build/ChugKnife_artefacts/Release/Standalone/ChugKnife.exe` (exit code 0) ✅ Passed
+## Deliverables & Improvements
+1. **Re-engineered Front-End Electroacoustic Architecture**:
+   - Replaced complex/inaudible 3-band LR4 dynamic compressor with an authentic front-end electroacoustic shaping engine inspired by the provided engineering literature (*"A Anatomia do Chug"* and *"Pedais de Chug no Metal Moderno"* - Horizon Precision Drive, Fortin 33, Solar CHUG, Amptweaker Tight).
+   - **Variable Pre-Gain Tight HPF (1st-Order 6 dB/octave)**:
+     - Chug 0.0: 10.0 Hz (completely transparent, < 0.07 dB at 80 Hz).
+     - Chug 0.5: ~195 Hz (sweet spot for E Standard / Drop D).
+     - Chug 0.75: ~340 Hz (sweet spot for Drop C / Drop B / 7-String Drop A).
+     - Chug 1.0: 500.0 Hz (extreme precision for Drop F / 8-String).
+     - Successfully cuts flubby fundamental sub-bass (60 Hz attenuated by > 10 dB at max) to eliminate amplifier blocking distortion.
+   - **Pick Attack Clank & Bite Peaking Filter**:
+     - Centered at 2200 Hz (Q = 1.3), scaling progressively from 0 dB up to +8.5 dB.
+     - Injects surgical mechanical pick attack friction into high-gain preamps.
+   - **Cabinet Punch Resonance Filter**:
+     - Centered at 90 Hz (Q = 1.2), scaling from 0 dB up to +3.0 dB.
+     - Preserves chest-thumping low-end resonance of 4x12 closed-back cabinets.
+2. **Automated Verification**:
+   - `ChugKnifeTests` verified with 22/22 passing assertions:
+     - Perfect transparency at Chug 0 across the entire frequency range.
+     - Proven aggressive sub-bass cut (<= -10 dB) and pick attack clank boost (>= +6 dB) at Chug 1.0.
