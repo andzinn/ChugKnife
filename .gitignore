@@ -13,6 +13,8 @@ out/
 .codex/
 .gemini/
 .idea/
+.agent/
+.agents/
 
 # OS specific
 Thumbs.db

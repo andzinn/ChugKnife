@@ -5,84 +5,44 @@ wave: 1
 gap_closure: false
 depends_on: []
 files_modified:
-  - Source/dsp/TubeScreamer.h
-  - Source/dsp/TubeScreamer.cpp
+  - Source/dsp/PitchShifter.h
+  - Source/dsp/PitchShifter.cpp
 autonomous: true
 must_haves:
   truths:
-    - "TubeScreamer Drive 0 maintains the existing clean/mid boost behavior"
-    - "TubeScreamer Drive > 0 provides rich, warm, dynamic analog overdrive distortion with responsive touch dynamics"
-    - "TubeScreamer Tone control provides wide, audible tonal variation from dark/warm (0.0) to cutting/aggressive (1.0) without premature high-frequency choking"
+    - "PitchShifter integrates the authentic Tone3000 correlation-spliced delay engine (MIT License)"
+    - "PitchShifter supports -24 to +24 semitones (-2 to +2 octaves)"
+    - "Rate-cost lag selection (1 - ncc)/jump avoids micro-jumps and prevents chord/bass distortion"
+    - "Adaptive crossfade (30 ms to 120 ms) based on match quality eliminates chuffing on sustained chords"
+    - "Onset re-sync preserves pick attacks with sub-5ms perceptual latency"
   artifacts:
-    - "Source/dsp/TubeScreamer.h"
-    - "Source/dsp/TubeScreamer.cpp"
+    - "Source/dsp/PitchShifter.h"
+    - "Source/dsp/PitchShifter.cpp"
 ---
 
-# Plan 1.1 (Milestone v1.2): TubeScreamer Overdrive & Wide-Range Tone Overhaul
+# Plan 1.1 (Milestone v1.3): Tone3000 Pitch Engine Integration (-24 to +24 st)
 
 ## Objective
-Revamp the TubeScreamer DSP module so that it functions both as an authentic clean/mid boost (at Drive 0) AND as a rich, singing, dynamic analog overdrive (as Drive increases). Eliminate the spurious cascading 723 Hz lowpass filter that choked all high-frequency harmonics, and reconstruct the active Tone control with an expressive ±15 dB range pivoting around 1.2 kHz.
-
-## Context
-Load these files for context:
-- .gsd/ROADMAP.md
-- .gsd/DECISIONS.md
-- Source/dsp/TubeScreamer.h
-- Source/dsp/TubeScreamer.cpp
+Replace the provisional pitch shifter with the authentic, battle-tested low-latency pitch engine from TONE3000 (MIT License). Implement rate-cost lag scoring, adaptive crossfade (30–120 ms), two-octave buffer geometry budgeting (-24 to +24 semitones), and onset re-sync for drop-tuning and whammy sweeps.
 
 ## Tasks
 
 <task type="auto">
-  <name>Task 1: Recalibrate Drive scaling for rich, dynamic overdrive distortion</name>
+  <name>Task 1: Implement Tone3000 Pitch Engine in Source/dsp/PitchShifter</name>
   <files>
-    Source/dsp/TubeScreamer.h
-    Source/dsp/TubeScreamer.cpp
+    Source/dsp/PitchShifter.h
+    Source/dsp/PitchShifter.cpp
   </files>
   <action>
-    1. In TubeScreamer.cpp:
-       - Adjust the drive gain path and feedback loop:
-         At Drive = 0, maintain current bounded boost characteristics.
-         As Drive increases from 0.0 to 1.0, increase the input signal drive into the non-linear diode clipping network exponentially (providing up to +36 dB of extra drive into the clipping stage).
-         Ensure that the diode saturation component scales musical distortion and sustain into the output, generating rich 2nd and 3rd harmonic overtones rather than being masked by the raw dry signal.
-       - Preserve smooth sample-rate scaling and anti-aliasing via 4x oversampling.
-    AVOID: Keeping the clipped diode voltage drowned out by clean unamplified input.
-    USE: Musical non-linear gain scaling that allows the 1N4148 diodes to sing and compress organically when Drive is pushed.
+    1. In Source/dsp/PitchShifter.h and Source/dsp/PitchShifter.cpp:
+       - Incorporate Tone3000's correlation-spliced delay line implementation with full MIT copyright attribution.
+       - Support semitones from -24 to +24.
+       - Maintain clean JUCE audio processor interface: prepare(), reset(), setSemitones(), setBypassed(), getCurrentDelaySamples(), process().
   </action>
   <verify>
     cmake --build build --config Release --target ChugKnife_VST3
   </verify>
   <done>
-    Drive knob yields progressive, rich overdrive harmonics from 0% to 100%.
+    PitchShifter compiles cleanly with Tone3000 engine supporting -24 to +24 semitones.
   </done>
 </task>
-
-<task type="auto">
-  <name>Task 2: Eliminate choking 723 Hz LPF and implement expressive wide-range Tone control</name>
-  <files>
-    Source/dsp/TubeScreamer.h
-    Source/dsp/TubeScreamer.cpp
-  </files>
-  <action>
-    1. In TubeScreamer.h and TubeScreamer.cpp:
-       - Remove the cascading `r7c5Filter` that was filtering the entire signal at 723 Hz and suffocating the tone stack.
-       - Re-voice `toneFilter` as an active tilt/shelving network pivoting at 1.2 kHz:
-         Tone 0.0: Smooth roll-off of highs (-14 dB at 4 kHz) for warm, dark, creamy neck tones.
-         Tone 0.5: Natural, balanced response.
-         Tone 1.0: Sharp, biting high-mid boost (+15 dB at 3.5 kHz) for modern aggressive cutting presence.
-       - Retain only an ultrasonic RF protection lowpass filter at 16 kHz.
-    AVOID: Cascading a lowpass at 723 Hz on the main audio path.
-    USE: Wide-range active tone filtering with pivot at 1.2 kHz and full audible harmonic transmission.
-  </action>
-  <verify>
-    cmake --build build --config Release --target ChugKnife_VST3 ChugKnife_Standalone
-  </verify>
-  <done>
-    Tone control produces dramatic, musical sonic variations across its full travel.
-  </done>
-</task>
-
-## Must-Haves
-After all tasks complete, verify:
-- [ ] VST3 and Standalone targets build with exit code 0
-- [ ] Drive 0 remains a clean boost; Drive 1.0 provides singing overdrive
-- [ ] Tone knob from 0.0 to 1.0 spans from warm/dark to bright/cutting

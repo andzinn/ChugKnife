@@ -215,7 +215,7 @@ ChugKnifeAudioProcessorEditor::ChugKnifeAudioProcessorEditor (ChugKnifeAudioProc
     // 1. TRANSPOSE MODULE (Electric Cyan #00E5FF)
     // -------------------------------------------------------------------------
     const juce::Colour cyanColour (0xff00e5ff);
-    configureHeader (transposeTitleLabel, transposeSubLabel, "TRANSPOSE", "Tone3000 Engine", cyanColour);
+    configureHeader (transposeTitleLabel, transposeSubLabel, "TRANSPOSE", "Tone3000 Engine (±24 st)", cyanColour);
     addAndMakeVisible (transposeTitleLabel);
     addAndMakeVisible (transposeSubLabel);
 

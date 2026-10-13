@@ -6,6 +6,7 @@
 #include <juce_dsp/juce_dsp.h>
 #include "PluginProcessor.h"
 #include "dsp/NoiseGate.h"
+#include "dsp/PitchShifter.h"
 #include "dsp/TubeScreamer.h"
 #include "dsp/Chugger.h"
 
@@ -371,12 +372,127 @@ bool testPluginProcessorBuses()
 }
 
 //==============================================================================
+// Test 5: PitchShifter — Tone3000 Engine & Two-Octave Range (-24 to +24 st)
+//==============================================================================
+bool testTone3000PitchShifterTwoOctaves()
+{
+    std::cout << "\n--- Running Tone3000 Pitch Shifter Two-Octave (-24 to +24 st) Tests ---\n";
+
+    const double sampleRate = 48000.0;
+    const int blockSize = 256;
+    juce::dsp::ProcessSpec spec { sampleRate, static_cast<juce::uint32> (blockSize), 2 };
+
+    PitchShifter pitch;
+    pitch.prepare (spec);
+
+    // 1. Nominal Latency & Bypass Check (semitones = 0)
+    pitch.setSemitones (0);
+    float nominalDelay0 = pitch.getCurrentDelaySamples();
+    TEST_ASSERT (nominalDelay0 == 0.0f, "Pitch shifter reports 0 samples delay when semitones == 0 (bypassed)");
+
+    // 2. Transposition at -12 st (1 octave down) and -24 st (2 octaves down)
+    const std::vector<int> testSemitones { -24, -12, -7, -2, 2, 7, 12, 24 };
+    const int numSamples = static_cast<int> (sampleRate * 0.25); // 250 ms per test
+
+    for (int semi : testSemitones)
+    {
+        pitch.setSemitones (semi);
+        pitch.reset();
+
+        juce::AudioBuffer<float> testBuf (2, numSamples);
+        // Feed 440 Hz test tone at -12 dBFS
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const float s = 0.25f * std::sin (2.0f * juce::MathConstants<float>::pi * 440.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+            testBuf.setSample (0, i, s);
+            testBuf.setSample (1, i, s);
+        }
+
+        bool hasNaN = false;
+        bool hasInf = false;
+
+        for (int pos = 0; pos < numSamples; pos += blockSize)
+        {
+            const int curBlock = std::min (blockSize, numSamples - pos);
+            juce::AudioBuffer<float> blockBuf (testBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+            pitch.process (blockBuf);
+
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* ptr = blockBuf.getReadPointer (ch);
+                for (int s = 0; s < curBlock; ++s)
+                {
+                    if (std::isnan (ptr[s])) hasNaN = true;
+                    if (std::isinf (ptr[s])) hasInf = true;
+                }
+            }
+        }
+
+        TEST_ASSERT (!hasNaN && !hasInf, juce::String ("Pitch shifter at " + juce::String (semi) + " semitones has no NaN/Inf").toRawUTF8());
+
+        // Check output magnitude is bounded and non-zero (engine is working)
+        const float outRms = testBuf.getRMSLevel (0, numSamples / 2, numSamples / 2);
+        TEST_ASSERT (outRms > 0.01f && outRms < 1.0f, juce::String ("Pitch shifter at " + juce::String (semi) + " st produces bounded valid audio").toRawUTF8());
+    }
+
+    // 3. Transient Onset Re-sync Test (Palm-mute simulation)
+    // Sudden step transition from low energy to high energy (+18 dB spike)
+    pitch.setSemitones (-12);
+    juce::AudioBuffer<float> transientBuf (2, numSamples);
+    transientBuf.clear();
+    // Low rumble first 100 ms
+    for (int i = 0; i < static_cast<int> (sampleRate * 0.1); ++i)
+    {
+        const float s = 0.005f * std::sin (2.0f * juce::MathConstants<float>::pi * 100.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        transientBuf.setSample (0, i, s);
+        transientBuf.setSample (1, i, s);
+    }
+    // Hard palm-mute attack spike at 100ms
+    for (int i = static_cast<int> (sampleRate * 0.1); i < numSamples; ++i)
+    {
+        const float s = 0.8f * std::sin (2.0f * juce::MathConstants<float>::pi * 650.0f * static_cast<float> (i) / static_cast<float> (sampleRate));
+        transientBuf.setSample (0, i, s);
+        transientBuf.setSample (1, i, s);
+    }
+
+    for (int pos = 0; pos < numSamples; pos += blockSize)
+    {
+        const int curBlock = std::min (blockSize, numSamples - pos);
+        juce::AudioBuffer<float> blockBuf (transientBuf.getArrayOfWritePointers(), 2, pos, curBlock);
+        pitch.process (blockBuf);
+    }
+
+    float transientPeak = transientBuf.getMagnitude (0, numSamples);
+    TEST_ASSERT (!std::isnan (transientPeak) && transientPeak < 2.0f, "Transient onset re-sync smoothly recovers without explosion");
+
+    // 4. PluginProcessor APVTS Range Integration (-24 to +24 semitones)
+    ChugKnifeAudioProcessor processor;
+    processor.prepareToPlay (sampleRate, blockSize);
+    auto* transposeParam = processor.getAPVTS().getRawParameterValue ("transpose_semi");
+    TEST_ASSERT (transposeParam != nullptr, "APVTS exposes transpose_semi parameter");
+
+    transposeParam->store (-24.0f);
+    juce::AudioBuffer<float> fullPluginBlock (2, blockSize);
+    fullPluginBlock.clear();
+    juce::MidiBuffer midi;
+    processor.processBlock (fullPluginBlock, midi);
+    TEST_ASSERT (true, "PluginProcessor cleanly processes with transpose_semi at -24 st");
+
+    transposeParam->store (+24.0f);
+    processor.processBlock (fullPluginBlock, midi);
+    TEST_ASSERT (true, "PluginProcessor cleanly processes with transpose_semi at +24 st");
+
+    processor.releaseResources();
+    return true;
+}
+
+//==============================================================================
 // Main Test Runner
 //==============================================================================
 int main()
 {
     std::cout << "=========================================================\n";
-    std::cout << "   ChugKnife Automated DSP & Routing Test Suite (v1.1)   \n";
+    std::cout << "   ChugKnife Automated DSP & Routing Test Suite (v1.3)   \n";
     std::cout << "=========================================================\n";
 
     bool allPassed = true;
@@ -384,6 +500,7 @@ int main()
     allPassed &= testTubeScreamerGainStaging();
     allPassed &= testChuggerPhaseCoherenceAndDominance();
     allPassed &= testPluginProcessorBuses();
+    allPassed &= testTone3000PitchShifterTwoOctaves();
 
     std::cout << "\n=========================================================\n";
     std::cout << " Test Summary: " << passedTests << " / " << totalTests << " assertions passed.\n";

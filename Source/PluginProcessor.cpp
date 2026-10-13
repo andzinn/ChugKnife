@@ -32,7 +32,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout ChugKnifeAudioProcessor::cre
     params.push_back (std::make_unique<juce::AudioParameterInt> (
         juce::ParameterID { "transpose_semi", 1 },
         "Transpose (Semitones)",
-        -12, 12, 0,
+        -24, 24, 0,
         juce::String(),
         [] (int val, int) { return (val > 0 ? "+" : "") + juce::String (val) + " st"; }));
 
